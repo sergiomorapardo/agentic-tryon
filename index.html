@@ -1,0 +1,2794 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Probador virtual · demo</title>
+<link rel="preconnect" href="https://huggingface.co">
+<link rel="preconnect" href="https://yisol-idm-vton.hf.space">
+<link rel="preconnect" href="https://franciszzj-leffa.hf.space">
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #151920; --panel-2: #1c222b; --line: #2a323d;
+    --fg: #f5f7fa; --muted: #a3adba; --accent: #4cc9f0; --accent-fg: #06202b;
+    --ok: #3ddc84; --warn: #ffb703; --err: #ff4d6d;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 20px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex; flex-direction: column; height: 100vh; /* everything fits on one screen: no scrolling on the projector */
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 18px 28px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: .2px; }
+  header h1 small { color: var(--muted); font-weight: 400; font-size: 18px; margin-left: 10px; }
+  .pills { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--line); font-size: 15px; color: var(--muted);
+  }
+  .pill::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .pill.ok::before { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  .pill.warn::before { background: var(--warn); }
+  .pill.err::before { background: var(--err); }
+  .pill.ok, .pill.warn, .pill.err { color: var(--fg); }
+
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px 28px 10px; }
+  .stage {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .42fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr); /* the row may shrink below the images' natural size */
+    gap: 22px; align-items: stretch; flex: 1; min-height: 0;
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+    display: flex; flex-direction: column; overflow: hidden; min-height: 0;
+  }
+  .panel h2 {
+    margin: 0; padding: 12px 18px; font-size: 18px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .panel h2 span { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 15px; }
+  .frame {
+    position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  /* Camera preview: mirrored ONLY for the user; the capture is taken unmirrored */
+  video#cam { width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); display: block; }
+  /* Sized by JS (layoutGuide) so it matches EXACTLY the 3:4 region that gets captured */
+  .guide {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 0; height: 0;
+    border: 2px solid rgba(76, 201, 240, .85); border-radius: 8px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); pointer-events: none;
+  }
+  .guide::after {
+    content: "Encuadre 3:4 · hombros y cabeza dentro del marco"; position: absolute; left: 50%; bottom: 10px;
+    transform: translateX(-50%); width: max-content; max-width: calc(100% - 12px); text-align: center; font-size: 14px; color: #cfe9f3;
+    background: rgba(0, 0, 0, .55); padding: 4px 10px; border-radius: 6px;
+  }
+  .countdown {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    font-size: 180px; font-weight: 800; color: #fff; text-shadow: 0 0 40px rgba(0, 0, 0, .8);
+    background: rgba(0, 0, 0, .25);
+  }
+  .countdown.on { display: flex; }
+  .frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .placeholder {
+    color: var(--muted); text-align: center; padding: 30px; font-size: 20px; max-width: 80%;
+  }
+  .spinner {
+    width: 84px; height: 84px; border-radius: 50%; border: 8px solid rgba(255, 255, 255, .12);
+    border-top-color: var(--accent); animation: spin 1s linear infinite; margin: 0 auto 22px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .garment { padding: 18px; gap: 14px; justify-content: center; align-items: center; background: #fff; }
+  .garment img { width: 100%; min-height: 0; flex: 1; object-fit: contain; border-radius: 10px; }
+  .arrow { text-align: center; color: var(--muted); font-size: 34px; padding: 6px 0 0; }
+
+  .statusbar {
+    display: flex; align-items: center; gap: 18px; padding: 16px 22px; border-radius: 16px;
+    background: var(--panel); border: 1px solid var(--line); font-size: 26px; font-weight: 600;
+    min-height: 74px;
+  }
+  .statusbar .dot { width: 18px; height: 18px; border-radius: 50%; background: var(--muted); flex: none; }
+  .statusbar.ok .dot { background: var(--ok); box-shadow: 0 0 14px var(--ok); }
+  .statusbar.busy .dot { background: var(--accent); box-shadow: 0 0 14px var(--accent); animation: pulse 1s ease-in-out infinite; }
+  .statusbar.warn .dot { background: var(--warn); }
+  .statusbar.err .dot { background: var(--err); box-shadow: 0 0 14px var(--err); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .statusbar .detail { color: var(--muted); font-weight: 400; font-size: 20px; margin-left: auto; text-align: right; }
+  .statusbar .timer { font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; color: var(--accent); }
+
+  .controls { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  button {
+    font: inherit; font-size: 24px; font-weight: 700; padding: 0 30px; min-height: 68px; border-radius: 14px;
+    border: 2px solid transparent; cursor: pointer; color: var(--fg); background: var(--panel-2);
+    border-color: var(--line); transition: transform .05s ease, filter .15s ease;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .4; cursor: not-allowed; filter: none; }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button.danger { border-color: var(--err); color: var(--err); }
+  button kbd {
+    font: 600 14px/1 ui-monospace, Menlo, monospace; opacity: .7; margin-left: 12px; padding: 3px 7px;
+    border: 1px solid currentColor; border-radius: 6px; vertical-align: middle;
+  }
+  .spacer { flex: 1; }
+  .errorbox {
+    display: none; border: 2px solid var(--err); background: rgba(255, 77, 109, .1); border-radius: 16px;
+    padding: 16px 22px; font-size: 21px; line-height: 1.4;
+  }
+  .errorbox.on { display: block; }
+  .errorbox strong { color: var(--err); }
+  .errorbox .hint { color: var(--muted); font-size: 18px; margin-top: 6px; }
+
+  footer { padding: 4px 28px 16px; }
+  details { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+  summary { cursor: pointer; padding: 12px 18px; font-size: 17px; color: var(--muted); user-select: none; }
+  .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px 22px; padding: 6px 18px 18px; }
+  .settings label { display: flex; flex-direction: column; gap: 6px; font-size: 15px; color: var(--muted); }
+  .settings input, .settings select {
+    font: inherit; font-size: 16px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .settings .note { grid-column: 1 / -1; font-size: 14px; color: var(--muted); line-height: 1.5; }
+  pre#log {
+    margin: 0; padding: 12px 18px; max-height: 120px; overflow: auto; font: 13px/1.45 ui-monospace, Menlo, monospace;
+    color: var(--muted); white-space: pre-wrap; border-top: 1px solid var(--line);
+  }
+  @media (max-width: 1100px) {
+    .stage { grid-template-columns: 1fr 1fr; }
+    .panel.garment { grid-column: 1 / -1; flex-direction: row; max-height: 160px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Probador virtual <small>modelo open source · IDM-VTON</small></h1>
+  <div class="pills" id="pills"></div>
+</header>
+
+<main>
+  <section class="stage">
+    <div class="panel">
+      <h2>Antes <span id="beforeCaption">cámara en vivo · espejo</span></h2>
+      <div class="frame">
+        <video id="cam" autoplay muted playsinline></video>
+        <div class="guide" id="guide"></div>
+        <div class="countdown" id="countdown"></div>
+        <img id="before" alt="Foto capturada" hidden>
+      </div>
+    </div>
+
+    <div class="panel garment">
+      <img id="garmentImg" alt="Prenda de la demo" src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQECAgICAgQDAgICAgUEBAMEBgUGBgYFBgYGBwkIBgcJBwYGCAsICQoKCgoKBggLDAsKDAkKCgr/2wBDAQICAgICAgUDAwUKBwYHCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgr/wAARCAQAAwADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD92KKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAAfM21eT6CneVJnHltn0xWX4v8AE3/CJaDJqQ2F3+WIMec+1eTy/ELxHPdGa41542Y52Icge1dmGwdTE/CcuIxdPD7ntnky/wDPJv8AvmjypP8Anm35V4ynjTxG6hl8SSAf7Qp6+MfFeP3fiJiPcV1/2RWRyf2rRPYtj/3D+VG1v7p/KvIF8Y+Lcc+I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K+/f+DeHxqfC/wC3dp2jiXaNYsHgIz6ZP9ayxEYypO5Sasf0IOsvmNI5GGxwD04pKNyksNpDbzuz7cUV4K2E9wooopiCiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKxvij4jj8NfCzxDrU0m0WmkXEvXoFjJzWzXhv/AAUj+IA+G/7FXjzxJDOIpm0aS1QlscyArn9a0hFOa5gWp/M78b/EbeLvid4h8R+YW+263cT7j3DOeK4tmXOM1e1O6lnj+0Snc7sSxPc561lOSXJNe/FWikXdIbcHOSKpz9DVuX7lVJ+hpkFWQk5WmhjECRzTn+8aiuXKIMDrUPcCCQ5ck0lI74bpQrbjjFIdmPjQPnJ6VJDEHjBJpYYcLuz19qcoMQ2A5xQIa/7sYHOKiMhJzipJW3ZGKhIwcUABOTmiiigBCmTnNCjaMU5V3DOad5Xy5zQOzGqpIyHIpyggYLZpE6fjTqBCqu4ZzS+X70ittGMUvme1AB5fvSFijbB3pfM9qTbvO/OKAH8d1BpGQE5HFLSM204xQAjR7YjJnv0puKc0m6Mx479aQLuHWgB0X3D9aYU3DdmnBvLG3Gc0meCMUARoMnOelPJzSKu3vS0AFFFGD1xQOzCkZiOlLketIy7u9AgVi3WlpFXb3paClFsKa67h17U6gjIxQJqzKxXajc96kt2KoMetK8QwRnrTdywqMnpQIuRsWIU04cPt9KjtnV1DjtT3JBLqPwpL4gNjSZTOhgK4AA5r6p/4JFeMT4E/bv8Ah/q/nBFfUjCzE4xuwK+UNElKvkr94AV63+yv4mk8IftAeD9difabPXreQtuxkbxxWlSKlSY7Nn9XnmiXLg8E5B9Qec0VneENVg17wnpWuW7ArdabDIMHI5QVo1861Z2EFFFFIAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACvhz/g4A+IaeDv2EL3RISBPrGpxRKN+DtU5P1r7jr8ov+DmX4k2yeH/A3wthuCsk00l1OqtztA44rWinKrEU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ABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAf//Z">
+      <div class="arrow" style="color:#555">→</div>
+    </div>
+
+    <div class="panel">
+      <h2>Después <span id="afterCaption">resultado del modelo</span></h2>
+      <div class="frame" id="afterFrame">
+        <div class="placeholder" id="afterPlaceholder">Captura una foto y pulsa <b>Generar</b>. El resultado aparecerá aquí.</div>
+        <div class="placeholder" id="afterBusy" hidden><div class="spinner"></div><div id="afterBusyText">Generando…</div></div>
+        <img id="after" alt="Resultado" hidden>
+      </div>
+    </div>
+  </section>
+
+  <div class="statusbar" id="status">
+    <div class="dot"></div>
+    <div id="statusText">Iniciando…</div>
+    <div class="timer" id="timer"></div>
+    <div class="detail" id="statusDetail"></div>
+  </div>
+
+  <div class="errorbox" id="errorbox"><strong>Error.</strong> <span id="errorText"></span><div class="hint" id="errorHint"></div></div>
+
+  <div class="controls">
+    <button id="btnCapture" class="primary" disabled>Capturar foto <kbd>espacio</kbd></button>
+    <button id="btnGenerate" class="primary" hidden>Generar <kbd>⏎</kbd></button>
+    <button id="btnRetake" hidden>Repetir foto <kbd>R</kbd></button>
+    <button id="btnCancel" class="danger" hidden>Cancelar <kbd>esc</kbd></button>
+    <button id="btnDownload" hidden>Descargar resultado <kbd>D</kbd></button>
+    <span class="spacer"></span>
+    <button id="btnCamera" hidden>Reintentar cámara</button>
+  </div>
+</main>
+
+<footer>
+  <details id="settingsBox">
+    <summary>Ajustes y registro (token HF, respaldo, pasos, diagnóstico)</summary>
+    <div class="settings">
+      <label>Token de Hugging Face (opcional, recomendado: más cuota ZeroGPU y prioridad en cola)
+        <input id="setHfToken" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false">
+      </label>
+      <label>X-IP-Token de ZeroGPU (avanzado, opcional): cabecera copiada de DevTools con tu sesión de HF abierta en el Space
+        <input id="setIpToken" type="password" placeholder="eyJ…" autocomplete="off" spellcheck="false">
+      </label>
+      <label>Clave de fal.ai (opcional, respaldo de pago: Leffa en fal)
+        <input id="setFalKey" type="password" placeholder="key_id:key_secret" autocomplete="off" spellcheck="false">
+      </label>
+      <label>Orden de modelos (se prueba el siguiente si uno falla)
+        <select id="setOrder">
+          <option value="idm,fal,leffa">IDM-VTON → fal (si hay clave) → Leffa</option>
+          <option value="fal,idm,leffa">fal (si hay clave) → IDM-VTON → Leffa</option>
+          <option value="leffa,idm,fal">Leffa → IDM-VTON → fal (si hay clave)</option>
+          <option value="idm">Solo IDM-VTON</option>
+        </select>
+      </label>
+      <label>Pasos de difusión (menos = más rápido)
+        <select id="setSteps">
+          <option value="20">20 · ~18 s en GPU</option>
+          <option value="30" selected>30 · calidad estándar</option>
+        </select>
+      </label>
+      <label>Tiempo máximo por modelo (segundos) antes de pasar al siguiente
+        <input id="setTimeout" type="number" min="30" max="600" step="10" value="150">
+      </label>
+      <label>URL de un Gradio local con la app de IDM-VTON (opcional, sustituye al Space)
+        <input id="setCustomUrl" type="url" placeholder="http://127.0.0.1:7860" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="note">
+        Los valores se guardan solo en este navegador (localStorage). Sin token, la cuota ZeroGPU anónima es de unos 3 min de GPU al día por IP
+        (≈ 5-6 generaciones con IDM-VTON; Leffa exige 180 s libres por llamada, así que en anónimo casi nunca entra).
+        Un Gradio local debe lanzarse con <code>demo.launch(strict_cors=False)</code> para aceptar peticiones desde un archivo <code>file://</code>.
+      </div>
+    </div>
+    <pre id="log"></pre>
+  </details>
+</footer>
+
+<!-- @gradio/client 2.6.0 (ISC license) inlined: no CDN, no network needed to load the page. -->
+<script type="module">
+//#region \0rolldown/runtime.js
+var e = Object.create, t = Object.defineProperty, n = Object.getOwnPropertyDescriptor, r = Object.getOwnPropertyNames, i = Object.getPrototypeOf, a = Object.prototype.hasOwnProperty, o = (e, t) => () => (t || (e((t = { exports: {} }).exports, t), e = null), t.exports), s = (e, i, o, s) => {
+	if (i && typeof i == "object" || typeof i == "function") for (var c = r(i), l = 0, u = c.length, d; l < u; l++) d = c[l], !a.call(e, d) && d !== o && t(e, d, {
+		get: ((e) => i[e]).bind(null, d),
+		enumerable: !(s = n(i, d)) || s.enumerable
+	});
+	return e;
+}, c = (n, r, a) => (a = n == null ? {} : e(i(n)), s(r || !n || !n.__esModule ? t(a, "default", {
+	value: n,
+	enumerable: !0
+}) : a, n)), l = "host", u = "queue/data", d = "queue/join", f = "upload", p = "login", m = "config", h = "info", g = "runtime", _ = "sleeptime", v = "heartbeat", ee = "component_server", te = "reset", ne = "cancel", re = "app_id", ie = "This application is currently busy. Please try again. ", y = "Connection errored out. ", b = "Could not resolve app config. ", x = "Could not get space status. ", ae = "Could not get API info. ", S = "Space metadata could not be loaded. ", C = "Invalid URL. A full URL path is required.", w = "Not authorized to access this space. ", T = "Invalid credentials. Could not login. ", oe = "Login credentials are required to access this space.", E = "Could not access this app (received a 401 response). If it is a private Hugging Face Space, pass a valid Hugging Face token to the `token` option of `Client.connect`. You can generate a token at https://huggingface.co/settings/tokens.", se = (e, t) => `Space "${e}" could not be accessed (received a ${t} response from the Hugging Face API). Check that the Space name is spelled correctly and that the Space exists. If the Space is private, pass a valid Hugging Face token to the \`token\` option of \`Client.connect\`. You can generate a token at https://huggingface.co/settings/tokens.`, ce = "No API information is available for this app. This can happen when the app's `/info` endpoint cannot be reached, or when the app is running a legacy version of Gradio that is not supported by this client. ", le = "This app appears to be running a legacy version of Gradio (3.x or earlier) that communicates over WebSockets, which is not supported by this version of @gradio/client. Please upgrade the app to a newer version of Gradio, or connect to it with @gradio/client version 0.x.", ue = "File system access is only available in Node.js environments", de = "Root URL not found in client config", fe = "Error uploading file";
+//#endregion
+//#region src/helpers/init_helpers.ts
+async function pe(e, t, n) {
+	try {
+		return (await (await fetch(`https://huggingface.co/api/spaces/${e}/jwt`, { headers: {
+			Authorization: `Bearer ${t}`,
+			...n ? { Cookie: n } : {}
+		} })).json()).token || !1;
+	} catch {
+		return !1;
+	}
+}
+function D(e) {
+	e.hf_token && !e.token && (e.token = e.hf_token, console.warn("The `hf_token` option has been renamed to `token`. Support for `hf_token` will be removed in a future version of @gradio/client."));
+}
+function me(e) {
+	let t = {};
+	return e.forEach(({ api_name: e, id: n }) => {
+		e && (t[e] = n);
+	}), t;
+}
+function O(e, t, n = !1) {
+	let r = new URL(t), i = new URL(e, r), a = i.hostname.endsWith(".colab-user-runtimes.internal") || i.hostname.endsWith(".codatalab-user-runtimes.internal");
+	return n || a ? new URL(new URL(e, r).pathname, r).toString().replace(/\/$/, "") : i.hostname === r.hostname ? (i.protocol = r.protocol, i.host = r.host, i.toString().replace(/\/$/, "")) : e;
+}
+async function he(e, t = !0) {
+	let n = this.options.token ? { Authorization: `Bearer ${this.options.token}` } : {};
+	if (typeof window < "u" && window.gradio_config && location.origin !== "http://localhost:9876") {
+		if (t && window.gradio_config.current_page && (e = e.substring(0, e.lastIndexOf("/"))), window.gradio_config.dev_mode || typeof window < "u" && window?.BUILD_MODE === "dev") {
+			let t = I(e, this.deep_link ? m + "?deep_link=" + this.deep_link : m), r = await k(await this.fetch(t, {
+				headers: n,
+				credentials: this.options.credentials ?? "same-origin"
+			}), !!this.options.auth);
+			r.root = e || r.root, window.gradio_config = {
+				...r,
+				current_page: window.gradio_config.current_page
+			};
+		}
+		let r = { ...window.gradio_config };
+		return r.root = O(r.root, location.href, r.is_colab), r;
+	} else if (e) {
+		let t = I(e, this.deep_link ? m + "?deep_link=" + this.deep_link : m), r = await k(await this.fetch(t, {
+			headers: n,
+			credentials: this.options.credentials ?? "same-origin"
+		}), !!this.options.auth);
+		return r.root ||= e, r;
+	}
+	throw Error(b);
+}
+async function k(e, t) {
+	if (e?.status === 401 && !t) {
+		let t = null;
+		try {
+			t = await e.json();
+		} catch {
+			throw Error(E);
+		}
+		let n = t?.detail?.auth_message;
+		throw Error(n || "Login credentials are required to access this space.");
+	} else if (e?.status === 401 && t) throw Error(T);
+	if (e?.status === 200) {
+		let t = await e.json();
+		return t.dependencies?.forEach((e, t) => {
+			e.id === void 0 && (e.id = t);
+		}), t;
+	} else if (e?.status === 401) throw Error(w);
+	throw Error(`${b}(received status ${e?.status} when fetching the app config)`);
+}
+async function A() {
+	let { http_protocol: e, host: t } = await F(this.app_reference, this.options.token);
+	try {
+		if (this.options.auth) {
+			let n = await j(e, t, this.options.auth, this.fetch, this.options.token, this.options.credentials);
+			n && this.set_cookies(n);
+		}
+	} catch (e) {
+		throw Error(e.message);
+	}
+}
+async function j(e, t, n, r, i, a) {
+	let o = new FormData();
+	o.append("username", n?.[0]), o.append("password", n?.[1]);
+	let s = {};
+	i && (s.Authorization = `Bearer ${i}`);
+	let c = await r(`${e}//${t}/${p}`, {
+		headers: s,
+		method: "POST",
+		body: o,
+		credentials: a ?? "same-origin"
+	});
+	if (c.status === 200) return c.headers.get("set-cookie");
+	throw c.status === 401 ? Error(T) : Error(S);
+}
+function M(e) {
+	if (e.startsWith("http")) {
+		let { protocol: t, host: n, pathname: r } = new URL(e);
+		return {
+			ws_protocol: t === "https:" ? "wss" : "ws",
+			http_protocol: t,
+			host: n + (r === "/" ? "" : r)
+		};
+	}
+	return {
+		ws_protocol: "wss",
+		http_protocol: "https:",
+		host: new URL(e).host
+	};
+}
+var N = (e) => {
+	let t = [];
+	return e.split(/,(?=\s*[^\s=;]+=[^\s=;]+)/).forEach((e) => {
+		let [n, r] = e.split(";")[0].split("=");
+		n && r && t.push(`${n.trim()}=${r.trim()}`);
+	}), t;
+}, P = /^[a-zA-Z0-9_\-\.]+\/[a-zA-Z0-9_\-\.]+$/, ge = /.*hf\.space\/{0,1}.*$/;
+async function F(e, t) {
+	let n = {};
+	t && (n.Authorization = `Bearer ${t}`);
+	let r = e.trim().replace(/\/$/, "");
+	if (P.test(r)) {
+		let e;
+		try {
+			e = await fetch(`https://huggingface.co/api/spaces/${r}/${l}`, { headers: n });
+		} catch {
+			throw Error(S);
+		}
+		if (e.status === 401 || e.status === 404) throw Error(se(r, e.status));
+		let t;
+		try {
+			t = (await e.json()).host;
+		} catch {
+			throw Error(S);
+		}
+		if (!t) throw Error(S);
+		return {
+			space_id: r,
+			...M(t)
+		};
+	}
+	if (ge.test(r)) {
+		let { ws_protocol: e, http_protocol: t, host: n } = M(r);
+		return {
+			space_id: n.split("/")[0].replace(".hf.space", ""),
+			ws_protocol: e,
+			http_protocol: t,
+			host: n
+		};
+	}
+	return {
+		space_id: !1,
+		...M(r)
+	};
+}
+var I = (...e) => {
+	try {
+		return e.reduce((e, t) => (e = e.replace(/\/+$/, ""), t = t.replace(/^\/+/, ""), new URL(t, e + "/").toString()));
+	} catch {
+		throw Error(C);
+	}
+};
+function L(e, t, n) {
+	let r = {
+		named_endpoints: {},
+		unnamed_endpoints: {}
+	};
+	return Object.keys(e).forEach((i) => {
+		(i === "named_endpoints" || i === "unnamed_endpoints") && (r[i] = {}, Object.entries(e[i]).forEach(([e, a]) => {
+			let o = a?.parameters ?? [], s = a?.returns ?? [], c = t.dependencies.find((t) => t.api_name === e || t.api_name === e.replace("/", ""))?.id || n[e.replace("/", "")] || -1, l = c === -1 ? void 0 : t.dependencies.find((e) => e.id == c), u = c === -1 ? {
+				generator: !1,
+				cancel: !1
+			} : l?.types;
+			if (l && Array.isArray(l.inputs) && l.inputs.length !== o.length) {
+				let e = l.inputs.map((e) => t.components.find((t) => t.id === e)?.type);
+				try {
+					e.forEach((e, t) => {
+						e === "state" && o.splice(t, 0, {
+							component: "state",
+							example: null,
+							parameter_default: null,
+							parameter_has_default: !0,
+							parameter_name: null,
+							hidden: !0
+						});
+					});
+				} catch (e) {
+					console.error(e);
+				}
+			}
+			let d = (e, t, n, r) => ({
+				...e,
+				description: ve(e?.type, n),
+				type: _e(e?.type, t, n, r) || ""
+			});
+			r[i][e] = {
+				parameters: o.map((e) => d(e, e?.component, e?.serializer, "parameter")),
+				returns: s.map((e) => d(e, e?.component, e?.serializer, "return")),
+				type: u,
+				...a?.oauth_token ? { oauth_token: a.oauth_token } : {}
+			};
+		}));
+	}), r;
+}
+function _e(e, t, n, r) {
+	if (t === "Api") return e.type;
+	switch (e?.type) {
+		case "string": return "string";
+		case "boolean": return "boolean";
+		case "number": return "number";
+	}
+	if (n === "JSONSerializable" || n === "StringSerializable") return "any";
+	if (n === "ListStringSerializable") return "string[]";
+	if (t === "Image") return r === "parameter" ? "Blob | File | Buffer" : "string";
+	if (n === "FileSerializable") return e?.type === "array" ? r === "parameter" ? "(Blob | File | Buffer)[]" : "{ name: string; data: string; size?: number; is_file?: boolean; orig_name?: string}[]" : r === "parameter" ? "Blob | File | Buffer" : "{ name: string; data: string; size?: number; is_file?: boolean; orig_name?: string}";
+	if (n === "GallerySerializable") return r === "parameter" ? "[(Blob | File | Buffer), (string | null)][]" : "[{ name: string; data: string; size?: number; is_file?: boolean; orig_name?: string}, (string | null))][]";
+}
+function ve(e, t) {
+	return t === "GallerySerializable" ? "array of [file, label] tuples" : t === "ListStringSerializable" ? "array of strings" : t === "FileSerializable" ? "array of files or single file" : e?.description;
+}
+function ye(e, t) {
+	switch (e.msg) {
+		case "send_data": return { type: "data" };
+		case "send_hash": return { type: "hash" };
+		case "queue_full": return {
+			type: "update",
+			status: {
+				queue: !0,
+				message: ie,
+				stage: "error",
+				code: e.code,
+				success: e.success
+			}
+		};
+		case "heartbeat": return { type: "heartbeat" };
+		case "unexpected_error": return {
+			type: "unexpected_error",
+			status: {
+				queue: !0,
+				message: e.message,
+				session_not_found: e.session_not_found,
+				stage: "error",
+				success: !1
+			}
+		};
+		case "broken_connection": return {
+			type: "broken_connection",
+			status: {
+				queue: !0,
+				message: e.message,
+				stage: "error",
+				success: !1
+			}
+		};
+		case "estimation": return {
+			type: "update",
+			status: {
+				queue: !0,
+				stage: t || "pending",
+				code: e.code,
+				size: e.queue_size,
+				position: e.rank,
+				eta: e.rank_eta,
+				success: e.success
+			}
+		};
+		case "progress": return {
+			type: "update",
+			status: {
+				queue: !0,
+				stage: "pending",
+				code: e.code,
+				progress_data: e.progress_data,
+				success: e.success
+			}
+		};
+		case "log": return {
+			type: "log",
+			data: e
+		};
+		case "process_generating": return {
+			type: "generating",
+			status: {
+				queue: !0,
+				message: e.success ? null : e.output.error,
+				stage: e.success ? "generating" : "error",
+				code: e.code,
+				progress_data: e.progress_data,
+				eta: e.average_duration,
+				changed_state_ids: e.success ? e.output.changed_state_ids : void 0
+			},
+			data: e.success ? e.output : null
+		};
+		case "process_streaming": return {
+			type: "streaming",
+			status: {
+				queue: !0,
+				message: e.output.error,
+				stage: "streaming",
+				time_limit: e.time_limit,
+				code: e.code,
+				progress_data: e.progress_data,
+				changed_state_ids: e.output.changed_state_ids,
+				eta: e.eta
+			},
+			data: e.output
+		};
+		case "process_completed": return "error" in e.output ? {
+			type: "update",
+			status: {
+				queue: !0,
+				title: e.output.title ?? "Error",
+				message: e.output.error ?? "An error occurred",
+				visible: e.output.visible,
+				duration: e.output.duration,
+				stage: "error",
+				code: e.code,
+				success: e.success
+			}
+		} : {
+			type: "complete",
+			status: {
+				queue: !0,
+				message: e.success ? void 0 : e.output.error,
+				stage: e.success ? "complete" : "error",
+				code: e.code,
+				progress_data: e.progress_data,
+				changed_state_ids: e.success ? e.output.changed_state_ids : void 0,
+				used_cache: e.used_cache,
+				cache_duration: e.cache_duration,
+				avg_time: e.avg_time
+			},
+			data: e.success ? e.output : null
+		};
+		case "process_starts": return {
+			type: "update",
+			status: {
+				queue: !0,
+				stage: "pending",
+				code: e.code,
+				size: e.rank,
+				position: 0,
+				success: e.success,
+				eta: e.eta
+			},
+			original_msg: "process_starts"
+		};
+	}
+	return {
+		type: "none",
+		status: {
+			stage: "error",
+			queue: !0
+		}
+	};
+}
+var be = (e = [], t) => {
+	let n = t ? t.parameters : [];
+	if (Array.isArray(e)) return t && n.length > 0 && e.length > n.length && console.warn("Too many arguments provided for the endpoint."), e;
+	let r = [], i = Object.keys(e);
+	return n.forEach((t, n) => {
+		if (e.hasOwnProperty(t.parameter_name)) r[n] = e[t.parameter_name];
+		else if (t.parameter_has_default) r[n] = t.parameter_default;
+		else throw Error(`No value provided for required parameter: ${t.parameter_name}`);
+	}), i.forEach((e) => {
+		if (!n.some((t) => t.parameter_name === e)) throw Error(`Parameter \`${e}\` is not a valid keyword argument. Please refer to the API for usage.`);
+	}), r.forEach((e, t) => {
+		if (e === void 0 && !n[t].parameter_has_default) throw Error(`No value provided for required parameter: ${n[t].parameter_name}`);
+	}), r;
+};
+//#endregion
+//#region src/utils/view_api.ts
+async function xe() {
+	if (this.api_info) return this.api_info;
+	let { token: e } = this.options, { config: t } = this, n = {};
+	if (e && (n.Authorization = `Bearer ${e}`), t) try {
+		let e, r;
+		if (typeof window < "u" && window.gradio_api_info) r = window.gradio_api_info;
+		else {
+			let i = I(t.root, this.api_prefix, h);
+			if (e = await this.fetch(i, {
+				headers: n,
+				credentials: this.options.credentials ?? "same-origin"
+			}), !e.ok) throw Error(y);
+			r = await e.json();
+		}
+		return "api" in r && (r = r.api), r.named_endpoints["/predict"] && !r.unnamed_endpoints[0] && (r.unnamed_endpoints[0] = r.named_endpoints["/predict"]), L(r, t, this.api_map);
+	} catch (e) {
+		throw Error("Could not get API info. " + e.message);
+	}
+}
+//#endregion
+//#region src/utils/upload_files.ts
+async function R(e, t, n) {
+	let r = {};
+	this?.options?.token && (r.Authorization = `Bearer ${this.options.token}`);
+	let i = 1e3, a = [], o;
+	for (let s = 0; s < t.length; s += i) {
+		let c = t.slice(s, s + i), l = new FormData();
+		c.forEach((e) => {
+			l.append("files", e);
+		});
+		try {
+			let t = n ? `${e}${this.api_prefix}/${f}?upload_id=${n}` : `${e}${this.api_prefix}/${f}`;
+			o = await this.fetch(t, {
+				method: "POST",
+				body: l,
+				headers: r,
+				credentials: this.options.credentials ?? "same-origin"
+			});
+		} catch (e) {
+			throw Error(y + e.message);
+		}
+		if (!o.ok) {
+			let e = await o.text();
+			return { error: `HTTP ${o.status}: ${e}` };
+		}
+		let u = await o.json();
+		u && a.push(...u);
+	}
+	return { files: a };
+}
+var z = {
+	si: {
+		radix: 1e3,
+		unit: [
+			"b",
+			"kb",
+			"Mb",
+			"Gb",
+			"Tb",
+			"Pb",
+			"Eb",
+			"Zb",
+			"Yb"
+		]
+	},
+	iec: {
+		radix: 1024,
+		unit: [
+			"b",
+			"Kib",
+			"Mib",
+			"Gib",
+			"Tib",
+			"Pib",
+			"Eib",
+			"Zib",
+			"Yib"
+		]
+	},
+	jedec: {
+		radix: 1024,
+		unit: [
+			"b",
+			"Kb",
+			"Mb",
+			"Gb",
+			"Tb",
+			"Pb",
+			"Eb",
+			"Zb",
+			"Yb"
+		]
+	}
+};
+function B(e, t = 1, n = "jedec") {
+	e = Math.abs(e);
+	let { radix: r, unit: i } = z[n] || z.jedec, a = 0;
+	for (; e >= r;) e /= r, ++a;
+	return `${e.toFixed(t)} ${i[a]}`;
+}
+//#endregion
+//#region src/upload.ts
+async function V(e, t, n, r) {
+	let i = (Array.isArray(e) ? e : [e]).map((e) => e.blob), a = i.filter((e) => e.size > (r ?? Infinity));
+	if (a.length) throw Error(`File(s) exceed the maximum allowed size of ${B(r || Infinity)}: ${a.map((e) => `"${e.name}"`).join(", ")}`);
+	return await Promise.all(await this.upload_files(t, i, n).then(async (n) => {
+		if (n.error) throw Error(n.error);
+		return n.files ? n.files.map((n, r) => {
+			let i = n.split("/").map((e) => encodeURIComponent(e)).join("/");
+			return new U({
+				...e[r],
+				path: n,
+				url: `${t}${this.api_prefix}/file=${i}`
+			});
+		}) : [];
+	}));
+}
+async function H(e, t) {
+	return e.map((e) => new U({
+		path: e.name,
+		orig_name: e.name,
+		blob: e,
+		size: e.size,
+		mime_type: e.type,
+		is_stream: t
+	}));
+}
+var U = class {
+	path;
+	url;
+	orig_name;
+	size;
+	blob;
+	is_stream;
+	mime_type;
+	alt_text;
+	b64;
+	meta = { _type: "gradio.FileData" };
+	constructor({ path: e, url: t, orig_name: n, size: r, blob: i, is_stream: a, mime_type: o, alt_text: s, b64: c }) {
+		this.path = e, this.url = t, this.orig_name = n, this.size = r, this.blob = t ? void 0 : i, this.is_stream = a, this.mime_type = o, this.alt_text = s, this.b64 = c;
+	}
+}, Se = class {
+	type;
+	command;
+	meta;
+	fileData;
+	constructor(e, t) {
+		this.type = "command", this.command = e, this.meta = t;
+	}
+}, Ce = typeof process < "u" && process.versions && process.versions.node;
+function we(e, t, n) {
+	for (; n.length > 1;) {
+		let t = n.shift();
+		if (typeof t == "string" || typeof t == "number") e = e[t];
+		else throw Error("Invalid key type");
+	}
+	let r = n.shift();
+	if (typeof r == "string" || typeof r == "number") e[r] = t;
+	else throw Error("Invalid key type");
+}
+async function W(e, t = void 0, n = [], r = !1, i = void 0) {
+	if (Array.isArray(e)) {
+		let a = [];
+		return await Promise.all(e.map(async (o, s) => {
+			let c = n.slice();
+			c.push(String(s));
+			let l = await W(e[s], r ? i?.parameters[s]?.component || void 0 : t, c, !1, i);
+			a = a.concat(l);
+		})), a;
+	} else if (globalThis.Buffer && e instanceof globalThis.Buffer || e instanceof Blob) return [{
+		path: n,
+		blob: e instanceof Blob ? e : new Blob([e]),
+		type: t
+	}];
+	else if (typeof e == "object" && e) {
+		let t = [];
+		for (let r of Object.keys(e)) {
+			let a = [...n, r], o = e[r];
+			t = t.concat(await W(o, void 0, a, !1, i));
+		}
+		return t;
+	}
+	return [];
+}
+function Te(e, t) {
+	let n = t?.dependencies?.find((t) => t.id == e)?.queue;
+	return n == null ? !t.enable_queue : !n;
+}
+function Ee(e, t) {
+	return new Promise((n, r) => {
+		let i = new MessageChannel();
+		i.port1.onmessage = (({ data: e }) => {
+			i.port1.close(), n(e);
+		}), window.parent.postMessage(e, t, [i.port2]);
+	});
+}
+function De(e) {
+	if (typeof e == "string") {
+		if (e.startsWith("http://") || e.startsWith("https://")) return {
+			path: e,
+			url: e,
+			orig_name: e.split("/").pop() ?? "unknown",
+			meta: { _type: "gradio.FileData" }
+		};
+		if (Ce) return new Se("upload_file", {
+			path: e,
+			name: e,
+			orig_path: e
+		});
+	} else if (typeof File < "u" && e instanceof File) return e;
+	else if (globalThis.Buffer && e instanceof globalThis.Buffer) return new Blob([e]);
+	else if (e instanceof Blob) return e;
+	throw Error("Invalid input: must be a URL, File, Blob, or Buffer object.");
+}
+function G(e, t, n, r, i = !1) {
+	if (r === "input" && !i) throw Error("Invalid code path. Cannot skip state inputs for input.");
+	if (r === "output" && i) return e;
+	let a = [], o = 0, s = r === "input" ? t.inputs : t.outputs;
+	for (let t = 0; t < s.length; t++) {
+		let r = s[t];
+		if (n.find((e) => e.id === r)?.type === "state") {
+			if (i) if (e.length === s.length) {
+				let t = e[o];
+				a.push(t), o++;
+			} else a.push(null);
+			else {
+				o++;
+				continue;
+			}
+			continue;
+		} else {
+			let t = e[o];
+			a.push(t), o++;
+		}
+	}
+	return a;
+}
+//#endregion
+//#region __vite-browser-external
+var Oe = /* @__PURE__ */ o(((e, t) => {
+	t.exports = {};
+}));
+//#endregion
+//#region src/utils/handle_blob.ts
+async function ke(e, t, n) {
+	let r = this;
+	await Ae(r, t);
+	let i = await W(t, void 0, [], !0, n);
+	return (await Promise.all(i.map(async ({ path: t, blob: n, type: i }) => {
+		if (!n) return {
+			path: t,
+			type: i
+		};
+		let a = await r.upload_files(e, [n]);
+		return {
+			path: t,
+			file_url: a.files && a.files[0],
+			type: i,
+			name: typeof File < "u" && n instanceof File ? n?.name : void 0
+		};
+	}))).forEach(({ path: e, file_url: n, type: r, name: i }) => {
+		r === "Gallery" ? we(t, n, e) : n && we(t, new U({
+			path: n,
+			orig_name: i
+		}), e);
+	}), t;
+}
+async function Ae(e, t) {
+	if (!(e.config?.root || e.config?.root_url)) throw Error(de);
+	await je(e, t);
+}
+async function je(e, t, n = []) {
+	for (let r in t) t[r] instanceof Se ? await Me(e, t, r) : typeof t[r] == "object" && t[r] !== null && await je(e, t[r], [...n, r]);
+}
+async function Me(e, t, n) {
+	let r = t[n], i = e.config?.root || e.config?.root_url;
+	if (!i) throw Error(de);
+	try {
+		let a, o;
+		if (typeof process < "u" && process.versions && process.versions.node) {
+			let e = await Promise.resolve().then(() => /* @__PURE__ */ c(Oe(), 1));
+			o = (await Promise.resolve().then(() => /* @__PURE__ */ c(Oe(), 1))).resolve(process.cwd(), r.meta.path), a = await e.readFile(o);
+		} else throw Error(ue);
+		let s = new Blob([a], { type: "application/octet-stream" }), l = await e.upload_files(i, [s]), u = l.files && l.files[0];
+		u && (t[n] = new U({
+			path: u,
+			orig_name: r.meta.name || ""
+		}));
+	} catch (e) {
+		console.error(fe, e);
+	}
+}
+//#endregion
+//#region src/utils/post_data.ts
+async function Ne(e, t, n) {
+	let r = { "Content-Type": "application/json" };
+	this.options.token && (r.Authorization = `Bearer ${this.options.token}`);
+	try {
+		var i = await this.fetch(e, {
+			method: "POST",
+			body: JSON.stringify(t),
+			headers: {
+				...r,
+				...n
+			},
+			credentials: this.options.credentials ?? "same-origin"
+		});
+	} catch {
+		return [{ error: y }, 500];
+	}
+	let a, o;
+	try {
+		a = await i.json(), o = i.status;
+	} catch (e) {
+		a = { error: `Could not parse server response: ${e}` }, o = 500;
+	}
+	return [a, o];
+}
+//#endregion
+//#region src/utils/predict.ts
+async function Pe(e, t = {}) {
+	let n = !1, r = !1;
+	if (!this.config) throw Error("Could not resolve app config");
+	if (typeof e == "number") this.config.dependencies.find((t) => t.id == e);
+	else {
+		let t = e.replace(/^\//, "");
+		this.config.dependencies.find((e) => e.id == this.api_map[t]);
+	}
+	let i = this.submit(e, t, null, null, !0), a;
+	for await (let e of i) {
+		if (e.type === "data" && (n = !0, a = e, r)) return a;
+		if (e.type === "status") {
+			if (e.stage === "error") {
+				let { message: t, ...n } = e, r = Error((typeof t == "string" ? t : t && JSON.stringify(t)) || "An unknown error occurred while making a prediction.");
+				throw Object.assign(r, n), r;
+			}
+			if (e.stage === "complete" && (r = !0, n)) return a;
+		}
+	}
+	return a;
+}
+//#endregion
+//#region src/helpers/spaces.ts
+async function K(e, t, n) {
+	let r = t === "subdomain" ? `https://huggingface.co/api/spaces/by-subdomain/${e}` : `https://huggingface.co/api/spaces/${e}`, i, a;
+	try {
+		if (i = await fetch(r), a = i.status, a !== 200) throw Error();
+		i = await i.json();
+	} catch {
+		n({
+			status: "error",
+			load_status: "error",
+			message: x,
+			detail: "NOT_FOUND"
+		});
+		return;
+	}
+	if (!i || a !== 200) return;
+	let { runtime: { stage: o }, id: s } = i;
+	switch (o) {
+		case "STOPPED":
+		case "SLEEPING":
+			n({
+				status: "sleeping",
+				load_status: "pending",
+				message: "Space is asleep. Waking it up...",
+				detail: o
+			}), setTimeout(() => {
+				K(e, t, n);
+			}, 1e3);
+			break;
+		case "PAUSED":
+			n({
+				status: "paused",
+				load_status: "error",
+				message: "This space has been paused by the author. If you would like to try this demo, consider duplicating the space.",
+				detail: o,
+				discussions_enabled: await Le(s)
+			});
+			break;
+		case "RUNNING":
+		case "RUNNING_BUILDING":
+			n({
+				status: "running",
+				load_status: "complete",
+				message: "Space is running.",
+				detail: o
+			});
+			break;
+		case "BUILDING":
+			n({
+				status: "building",
+				load_status: "pending",
+				message: "Space is building...",
+				detail: o
+			}), setTimeout(() => {
+				K(e, t, n);
+			}, 1e3);
+			break;
+		case "APP_STARTING":
+			n({
+				status: "starting",
+				load_status: "pending",
+				message: "Space is starting...",
+				detail: o
+			}), setTimeout(() => {
+				K(e, t, n);
+			}, 1e3);
+			break;
+		default:
+			n({
+				status: "space_error",
+				load_status: "error",
+				message: "This space is experiencing an issue.",
+				detail: o,
+				discussions_enabled: await Le(s)
+			});
+			break;
+	}
+}
+var Fe = async (e, t) => {
+	let n = 0;
+	return new Promise((r) => {
+		K(e, P.test(e) ? "space_name" : "subdomain", (i) => {
+			t(i), i.status === "running" || i.status === "error" || i.status === "paused" || i.status === "space_error" ? r() : (i.status === "sleeping" || i.status === "building") && (n < 12 ? (n++, setTimeout(() => {
+				Fe(e, t).then(r);
+			}, 5e3)) : r());
+		});
+	});
+}, Ie = /^(?=[^]*\b[dD]iscussions{0,1}\b)(?=[^]*\b[dD]isabled\b)[^]*$/;
+async function Le(e) {
+	try {
+		let t = await fetch(`https://huggingface.co/api/spaces/${e}/discussions`, { method: "HEAD" }), n = t.headers.get("x-error-message");
+		return !(!t.ok || n && Ie.test(n));
+	} catch {
+		return !1;
+	}
+}
+async function Re(e, t) {
+	let n = {};
+	t && (n.Authorization = `Bearer ${t}`);
+	try {
+		let t = await fetch(`https://huggingface.co/api/spaces/${e}/${g}`, { headers: n });
+		if (t.status !== 200) throw Error("Space hardware could not be obtained.");
+		let { hardware: r } = await t.json();
+		return r.current;
+	} catch (e) {
+		throw Error(e.message);
+	}
+}
+async function ze(e, t, n) {
+	let r = {};
+	n && (r.Authorization = `Bearer ${n}`);
+	let i = { seconds: t };
+	try {
+		let t = await fetch(`https://huggingface.co/api/spaces/${e}/${_}`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...r
+			},
+			body: JSON.stringify(i)
+		});
+		if (t.status !== 200) throw Error("Could not set sleep timeout on duplicated Space. Please visit *ADD HF LINK TO SETTINGS* to set a timeout manually to reduce billing charges.");
+		return await t.json();
+	} catch (e) {
+		throw Error(e.message);
+	}
+}
+var Be = [
+	"cpu-basic",
+	"cpu-upgrade",
+	"cpu-xl",
+	"t4-small",
+	"t4-medium",
+	"a10g-small",
+	"a10g-large",
+	"a10g-largex2",
+	"a10g-largex4",
+	"a100-large",
+	"zero-a10g",
+	"h100",
+	"h100x8"
+];
+//#endregion
+//#region src/utils/duplicate.ts
+async function Ve(e, t) {
+	D(t);
+	let { token: n, private: r, hardware: i, timeout: a, auth: o } = t;
+	if (i && !Be.includes(i)) throw Error(`Invalid hardware type provided. Valid types are: ${Be.map((e) => `"${e}"`).join(",")}.`);
+	let { http_protocol: s, host: c } = await F(e, n), l = null;
+	if (o) {
+		let e = await j(s, c, o, fetch, void 0, t.credentials);
+		e && (l = N(e));
+	}
+	let u = {
+		Authorization: `Bearer ${n}`,
+		"Content-Type": "application/json",
+		...l ? { Cookie: l.join("; ") } : {}
+	}, d = (await (await fetch("https://huggingface.co/api/whoami-v2", { headers: u })).json()).name, f = e.split("/")[1], p = { repository: `${d}/${f}` };
+	r && (p.private = !0);
+	let m;
+	try {
+		i || (m = await Re(e, n));
+	} catch (e) {
+		throw Error(S + e.message);
+	}
+	p.hardware = i || m || "cpu-basic";
+	try {
+		let r = await fetch(`https://huggingface.co/api/spaces/${e}/duplicate`, {
+			method: "POST",
+			headers: u,
+			body: JSON.stringify(p)
+		});
+		if (r.status === 409) try {
+			return await $.connect(`${d}/${f}`, t);
+		} catch (e) {
+			throw console.error("Failed to connect Client instance:", e), e;
+		}
+		else if (r.status !== 200) throw Error(r.statusText);
+		let i = await r.json();
+		return await ze(`${d}/${f}`, a || 300, n), await $.connect(He(i.url), t);
+	} catch (e) {
+		throw Error(e);
+	}
+}
+function He(e) {
+	let t = e.match(/https:\/\/huggingface.co\/spaces\/([^/]+\/[^/]+)/);
+	if (t) return t[1];
+}
+//#endregion
+//#region src/helpers/zerogpu.ts
+var Ue = "supports-zerogpu-headers", We = !1;
+function Ge() {
+	return typeof window < "u" && typeof document < "u" && typeof window.addEventListener == "function";
+}
+function Ke(e) {
+	return e.includes(".dev.") ? `https://moon-${e.split(".")[1]}.dev.spaces.huggingface.tech` : e.endsWith(".hf.space") ? "https://huggingface.co" : null;
+}
+function qe() {
+	if (!Ge() || We) return;
+	window.addEventListener("message", (e) => {
+		e.data === Ue && (window.supports_zerogpu_headers = !0);
+	}), We = !0;
+	let e = Ke(window.location.hostname);
+	e && window.parent !== window && window.parent.postMessage(Ue, e);
+}
+//#endregion
+//#region ../../node_modules/.pnpm/fetch-event-stream@0.1.6/node_modules/fetch-event-stream/esm/deps/jsr.io/@std/streams/0.221.0/text_line_stream.js
+var Je = class extends TransformStream {
+	#e = "";
+	constructor(e = { allowCR: !1 }) {
+		super({
+			transform: (t, n) => {
+				for (t = this.#e + t;;) {
+					let r = t.indexOf("\n"), i = e.allowCR ? t.indexOf("\r") : -1;
+					if (i !== -1 && i !== t.length - 1 && (r === -1 || r - 1 > i)) {
+						n.enqueue(t.slice(0, i)), t = t.slice(i + 1);
+						continue;
+					}
+					if (r === -1) break;
+					let a = t[r - 1] === "\r" ? r - 1 : r;
+					n.enqueue(t.slice(0, a)), t = t.slice(r + 1);
+				}
+				this.#e = t;
+			},
+			flush: (t) => {
+				if (this.#e === "") return;
+				let n = e.allowCR && this.#e.endsWith("\r") ? this.#e.slice(0, -1) : this.#e;
+				t.enqueue(n);
+			}
+		});
+	}
+};
+//#endregion
+//#region ../../node_modules/.pnpm/fetch-event-stream@0.1.6/node_modules/fetch-event-stream/esm/utils.js
+function Ye(e) {
+	let t = new TextDecoderStream(), n = new Je({ allowCR: !0 });
+	return e.pipeThrough(t).pipeThrough(n);
+}
+function Xe(e) {
+	let t = /[:]\s*/.exec(e), n = t && t.index;
+	if (n) return [e.substring(0, n), e.substring(n + t[0].length)];
+}
+function Ze(e, t, n) {
+	e.get(t) || e.set(t, n);
+}
+//#endregion
+//#region ../../node_modules/.pnpm/fetch-event-stream@0.1.6/node_modules/fetch-event-stream/esm/mod.js
+async function* Qe(e, t) {
+	if (!e.body) return;
+	let n = Ye(e.body), r, i = n.getReader(), a;
+	for (;;) {
+		if (t && t.aborted) return i.cancel();
+		if (r = await i.read(), r.done) return;
+		if (!r.value) {
+			a && (yield a), a = void 0;
+			continue;
+		}
+		let [e, n] = Xe(r.value) || [];
+		e === "data" ? (a ||= {}, a[e] = a[e] ? a[e] + "\n" + n : n) : e === "event" ? (a ||= {}, a[e] = n) : e === "id" ? (a ||= {}, a[e] = String(+n) === n ? +n : n) : e === "retry" && (a ||= {}, a[e] = +n || void 0);
+	}
+}
+async function $e(e, t) {
+	let n = new Request(e, t);
+	Ze(n.headers, "Accept", "text/event-stream"), Ze(n.headers, "Content-Type", "application/json");
+	let r = await fetch(n);
+	if (!r.ok) throw r;
+	return Qe(r, n.signal);
+}
+//#endregion
+//#region src/utils/stream.ts
+async function et() {
+	let { event_callbacks: e, unclosed_events: t, pending_stream_messages: n, stream_status: r, config: i, jwt: a } = this, o = this;
+	if (!i) throw Error("Could not resolve app config");
+	r.open = !0;
+	let s = null, c = new URLSearchParams({ session_hash: this.session_hash }).toString(), l = new URL(`${i.root}${this.api_prefix}/${u}?${c}`);
+	if (a && l.searchParams.set("__sign", a), s = this.stream(l), !s) {
+		console.warn("Cannot connect to SSE endpoint: " + l.toString());
+		return;
+	}
+	s.onmessage = async function(a) {
+		let s = JSON.parse(a.data);
+		if (s.msg === "close_stream") {
+			tt(r, o.abort_controller);
+			return;
+		}
+		let c = s.event_id;
+		if (!c) await Promise.all(Object.keys(e).map((t) => e[t](s)));
+		else if (e[c] && i) {
+			s.msg === "process_completed" && [
+				"sse",
+				"sse_v1",
+				"sse_v2",
+				"sse_v2.1",
+				"sse_v3"
+			].includes(i.protocol) && t.delete(c);
+			let n = e[c];
+			typeof window < "u" && typeof document < "u" && document.visibilityState !== "hidden" ? setTimeout(n, 0, s) : n(s);
+		} else n[c] || (n[c] = []), n[c].push(s);
+	}, s.onerror = async function(t) {
+		console.error(t), await Promise.all(Object.keys(e).map((t) => e[t]({
+			msg: "broken_connection",
+			message: y
+		})));
+	};
+}
+function tt(e, t) {
+	e && (e.open = !1, t?.abort());
+}
+function nt(e, t, n) {
+	e[t] ? n.data.forEach((r, i) => {
+		let a = rt(i < e[t].length ? e[t][i] : null, r);
+		e[t][i] = a, n.data[i] = a;
+	}) : (e[t] = [], n.data.forEach((n, r) => {
+		e[t][r] = n;
+	}));
+}
+function rt(e, t) {
+	return t.forEach(([t, n, r]) => {
+		e = it(e, n, t, r);
+	}), e;
+}
+function it(e, t, n, r) {
+	if (t.length === 0) {
+		if (n === "replace") return r;
+		if (n === "append") return e + r;
+		throw Error(`Unsupported action: ${n}`);
+	}
+	let i = e;
+	for (let e = 0; e < t.length - 1; e++) i = i[t[e]];
+	let a = t[t.length - 1];
+	switch (n) {
+		case "replace":
+			i[a] = r;
+			break;
+		case "append":
+			i[a] += r;
+			break;
+		case "add":
+			Array.isArray(i) ? i.splice(Number(a), 0, r) : i[a] = r;
+			break;
+		case "delete":
+			Array.isArray(i) ? i.splice(Number(a), 1) : delete i[a];
+			break;
+		default: throw Error(`Unknown action: ${n}`);
+	}
+	return e;
+}
+function at(e, t = {}) {
+	let n = {
+		close: () => {
+			console.warn("Method not implemented.");
+		},
+		onerror: null,
+		onmessage: null,
+		onopen: null,
+		readyState: 0,
+		url: e.toString(),
+		withCredentials: !1,
+		CONNECTING: 0,
+		OPEN: 1,
+		CLOSED: 2,
+		addEventListener: () => {
+			throw Error("Method not implemented.");
+		},
+		dispatchEvent: () => {
+			throw Error("Method not implemented.");
+		},
+		removeEventListener: () => {
+			throw Error("Method not implemented.");
+		}
+	};
+	return $e(e, t).then(async (e) => {
+		n.readyState = n.OPEN;
+		try {
+			for await (let t of e) n.onmessage && n.onmessage(t);
+			n.readyState = n.CLOSED;
+		} catch (e) {
+			n.onerror && n.onerror(e), n.readyState = n.CLOSED;
+		}
+	}).catch((e) => {
+		console.error(e), n.onerror && n.onerror(e), n.readyState = n.CLOSED;
+	}), n;
+}
+//#endregion
+//#region src/utils/run_history.ts
+var ot = "gradio:run-history:", q = `${ot}v2:`, st = `${ot}replay:v2:`, ct = `${ot}destination:v1:`, lt = 100, ut = 8;
+function J(e, t) {
+	try {
+		return e();
+	} catch (e) {
+		return console.warn("Could not update the run history.", e), t;
+	}
+}
+function dt(e, t = "/gradio_api") {
+	return `${e.replace(/\/+$/, "")}${t}/runs`;
+}
+function Y(e) {
+	if (typeof window > "u") return null;
+	let t = e?.app_id;
+	if (t == null || t === "") return null;
+	try {
+		return window.localStorage ? `${q}${t}${e?.username ? `:user:${encodeURIComponent(e.username)}` : ""}` : null;
+	} catch {
+		return null;
+	}
+}
+function ft(e) {
+	let t = Y(e);
+	return t ? t.replace(q, st) : null;
+}
+function pt(e) {
+	let t = Y(e);
+	return t ? t.replace(q, ct) : null;
+}
+function mt(e) {
+	let t = pt(e);
+	if (!t) return { type: "browser" };
+	try {
+		let e = JSON.parse(window.localStorage.getItem(t) || "null");
+		return typeof e?.bucket_id == "string" ? e.type === "bucket" ? {
+			type: "bucket",
+			bucket_id: e.bucket_id
+		} : {
+			type: "browser",
+			bucket_id: e.bucket_id
+		} : { type: "browser" };
+	} catch {
+		return { type: "browser" };
+	}
+}
+function ht(e, t) {
+	let n = pt(e);
+	n && (t.type === "browser" && !t.bucket_id ? window.localStorage.removeItem(n) : window.localStorage.setItem(n, JSON.stringify(t)), Ct());
+}
+function gt(e) {
+	try {
+		let t = JSON.parse(window.localStorage.getItem(e) || "[]");
+		return Array.isArray(t) && t.length && Date.parse(t[0]?.started_at) || 0;
+	} catch {
+		return 0;
+	}
+}
+function _t(e) {
+	let t = Object.keys(window.localStorage).filter((e) => e.startsWith(ot)), n = [...t.filter((e) => !e.startsWith(q) && !e.startsWith(st) && !e.startsWith(ct)), ...t.filter((t) => t.startsWith(q) && t !== e).sort((e, t) => gt(t) - gt(e)).slice(ut - 1)];
+	for (let e of n) try {
+		window.localStorage.removeItem(e), window.sessionStorage.removeItem(e.replace(q, st));
+	} catch {}
+}
+function vt() {
+	return typeof crypto < "u" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+function X(e) {
+	let t = /* @__PURE__ */ new WeakSet();
+	try {
+		return JSON.parse(JSON.stringify(e, (e, n) => {
+			if (typeof n == "bigint") return n.toString();
+			if (typeof n == "object" && n) {
+				if (t.has(n)) return "[Circular]";
+				t.add(n);
+			}
+			return n;
+		}));
+	} catch {
+		return "[Unserializable value]";
+	}
+}
+function Z(e) {
+	let t = Y(e);
+	if (!t) return [];
+	try {
+		let e = JSON.parse(window.localStorage.getItem(t) || "[]");
+		return Array.isArray(e) ? e : [];
+	} catch {
+		return [];
+	}
+}
+function yt(e, t) {
+	let n = Y(e);
+	if (!n) return;
+	let r = t.slice(0, lt), i = !1;
+	for (; r.length > 0;) try {
+		window.localStorage.setItem(n, JSON.stringify(r));
+		return;
+	} catch {
+		if (!i) {
+			i = !0, _t(n);
+			continue;
+		}
+		r = r.slice(0, -1);
+	}
+	try {
+		window.localStorage.removeItem(n);
+	} catch {}
+}
+function bt(e) {
+	let t = Y(e);
+	if (t) {
+		try {
+			window.localStorage.removeItem(t);
+		} catch {}
+		Ct();
+	}
+}
+function xt(e, t) {
+	yt(e, Z(e).filter((e) => e.id !== t)), Ct();
+}
+var St = "gradio:run-history-change";
+function Ct() {
+	if (!(typeof window > "u")) try {
+		window.dispatchEvent(new Event(St));
+	} catch {}
+}
+function wt(e) {
+	return typeof window > "u" ? () => {} : (window.addEventListener(St, e), window.addEventListener("storage", e), () => {
+		window.removeEventListener(St, e), window.removeEventListener("storage", e);
+	});
+}
+function Tt(e, t) {
+	let n = ft(e);
+	if (n) try {
+		window.sessionStorage.setItem(n, JSON.stringify(t));
+	} catch {}
+}
+function Et(e) {
+	let t = ft(e);
+	if (!t) return null;
+	try {
+		let e = window.sessionStorage.getItem(t);
+		return window.sessionStorage.removeItem(t), e ? JSON.parse(e) : null;
+	} catch {
+		return null;
+	}
+}
+function Dt(e, t) {
+	let n = e.dependencies.find((e) => e.id === t.fn_index || typeof e.api_name == "string" && `/${e.api_name.replace(/^\//, "")}` === t.api_name);
+	if (!n) return !1;
+	let r = Array.isArray(t.inputs) ? t.inputs : Object.values(t.inputs ?? {}), i = Array.isArray(t.outputs) ? t.outputs : t.outputs === null || t.outputs === void 0 ? [] : [t.outputs], a = (t, n) => {
+		for (let [r, i] of t.entries()) {
+			let t = e.components.find((e) => e.id === i);
+			!t || r >= n.length || t.type !== "state" && (t.props.value = n[r]);
+		}
+	};
+	return a(n.inputs, r), a(n.outputs, i), !0;
+}
+function Ot(e) {
+	let t = Et(e);
+	return t ? Dt(e, t) : !1;
+}
+function kt(e) {
+	if (mt(e).type === "bucket") return null;
+	let t = Y(e);
+	if (!t) return null;
+	_t(t);
+	let n = {
+		id: vt(),
+		endpoint: e.endpoint,
+		api_name: e.api_name,
+		fn_index: e.fn_index,
+		page: `${window.location.pathname}${window.location.search}`,
+		inputs: X(e.inputs),
+		outputs: null,
+		...e.input_components ? { input_components: X(e.input_components) } : {},
+		...e.output_components ? { output_components: X(e.output_components) } : {},
+		status: "running",
+		started_at: (/* @__PURE__ */ new Date()).toISOString()
+	};
+	return yt(e, [n, ...Z(e)]), Ct(), n.id;
+}
+function At(e, t, n) {
+	if (!t) return;
+	let r = Z(e), i = r.find((e) => e.id === t);
+	i && (i.inputs = X(n), yt(e, r));
+}
+function jt(e, t, n) {
+	if (!t) return;
+	let r = Z(e), i = r.find((e) => e.id === t);
+	if (!i) return;
+	let a = !1;
+	if (n.type === "data") i.outputs = X(n.data), Q.set(t, i.outputs);
+	else if (n.type === "status" && n.original_msg === "process_starts") Pt(i, n.time);
+	else if (n.type === "status" && (n.stage === "generating" || n.stage === "streaming")) i.streamed = !0;
+	else if (n.type === "status" && n.stage === "complete") i.status = "completed", Ft(i, n), a = !0;
+	else if (n.type === "status" && n.stage === "error") i.status = "failed", i.error = typeof n.message == "string" ? n.message : JSON.stringify(n.message || "Unknown error"), Ft(i, n), a = !0;
+	else return;
+	if (a) Q.has(t) && (i.outputs = Q.get(t)), Q.delete(t), Nt.delete(t);
+	else if (i.streamed) {
+		if (Date.now() - (Nt.get(t) ?? 0) < Mt) return;
+		Nt.set(t, Date.now()), Q.delete(t);
+	}
+	yt(e, r);
+}
+var Mt = 500, Nt = /* @__PURE__ */ new Map(), Q = /* @__PURE__ */ new Map();
+function Pt(e, t) {
+	if (e.process_started_at) return;
+	let n = t || /* @__PURE__ */ new Date();
+	e.process_started_at = n.toISOString(), e.queued_ms = Math.max(0, n.getTime() - Date.parse(e.started_at));
+}
+function Ft(e, t) {
+	let n = t.time || /* @__PURE__ */ new Date();
+	e.completed_at = n.toISOString(), e.duration_ms = (!e.streamed && typeof t.cache_duration == "number" && t.cache_duration >= 0 ? t.cache_duration * 1e3 : null) ?? Math.max(0, n.getTime() - Date.parse(e.process_started_at || e.started_at));
+}
+function It(e) {
+	return J(() => Z(e), []);
+}
+function Lt(e) {
+	return J(() => mt(e), { type: "browser" });
+}
+function Rt(e, t) {
+	J(() => ht(e, t), void 0);
+}
+function zt(e) {
+	J(() => bt(e), void 0);
+}
+function Bt(e, t) {
+	J(() => xt(e, t), void 0);
+}
+function Vt(e, t) {
+	J(() => Tt(e, t), void 0);
+}
+function Ht(e) {
+	return J(() => Et(e), null);
+}
+function Ut(e) {
+	return J(() => Ot(e), !1);
+}
+function Wt(e) {
+	return J(() => kt(e), null);
+}
+function Gt(e, t, n) {
+	J(() => At(e, t, n), void 0);
+}
+function Kt(e, t, n) {
+	J(() => jt(e, t, n), void 0);
+}
+function qt(e) {
+	return J(() => wt(() => J(e, void 0)), () => {});
+}
+//#endregion
+//#region src/utils/submit.ts
+function Jt(e, t = {}, n, r, i, a) {
+	try {
+		let { token: o } = this.options, { fetch: s, app_reference: c, config: l, session_hash: f, api_info: p, api_map: m, stream_status: h, pending_stream_messages: g, pending_diff_streams: _, event_callbacks: v, unclosed_events: ee, post_data: re, options: b, api_prefix: x } = this, ae = a || { "x-gradio-user": "api" }, S = this;
+		if (!p) throw Error(ce);
+		if (!l) throw Error("Could not resolve app config");
+		let { fn_index: C, endpoint_info: w, dependency: T } = Xt(p, e, m, l), oe = be(t, w), E = l.protocol ?? "ws";
+		if (E === "ws") throw Error(le);
+		let se = typeof T.api_name == "string" ? `/${T.api_name}` : e, ue = typeof T.api_name == "string" ? `/${T.api_name}` : `Function ${C}`, de = (e) => {
+			let t = l.components.find((t) => t.id === e);
+			return t ? {
+				type: t.type,
+				component_class_id: t.component_class_id,
+				props: t.props
+			} : null;
+		}, fe = T.api_visibility === "public", pe = l.run_history !== !1 && this.options.record_history !== !1, D = {
+			app_id: l.app_id,
+			username: l.username
+		}, me = Lt(D), O = {
+			...ae,
+			...pe && me.type === "bucket" ? { "x-gradio-history-bucket": me.bucket_id } : {}
+		}, he = !pe || !fe ? null : Wt({
+			...D,
+			endpoint: se,
+			api_name: ue,
+			fn_index: C,
+			inputs: G(oe, T, l.components, "input", !0),
+			input_components: T.inputs.map(de),
+			output_components: T.outputs.map(de)
+		}), k, A = "", j = typeof e == "number" ? "/predict" : e, M, N = null, P = !1, ge = {}, F = typeof window < "u" && typeof document < "u" ? new URLSearchParams(window.location.search).toString() : "", I = b?.events?.reduce((e, t) => (e[t] = !0, e), {}) || {};
+		function L(e) {
+			Kt(D, he, e), (i || I[e.type]) && Ce(e);
+		}
+		async function _e() {
+			let e = {}, t = {};
+			e = { event_id: N }, t = {
+				event_id: N,
+				session_hash: f,
+				fn_index: C
+			};
+			try {
+				if (!l) throw Error("Could not resolve app config");
+				"event_id" in t && await s(`${l.root}${x}/${ne}`, {
+					headers: { "Content-Type": "application/json" },
+					method: "POST",
+					body: JSON.stringify(t)
+				}), await s(`${l.root}${x}/${te}`, {
+					headers: { "Content-Type": "application/json" },
+					method: "POST",
+					body: JSON.stringify(e)
+				});
+			} catch {
+				console.warn("The `/reset` endpoint could not be called. Subsequent endpoint results may be unreliable.");
+			}
+		}
+		let ve = async (e) => {
+			await this._resolve_heartbeat(e);
+		};
+		async function xe(e) {
+			if (!l) return;
+			let t = e.render_id;
+			l.components = [...l.components.filter((e) => e.props.rendered_in !== t), ...e.components], l.dependencies = [...l.dependencies.filter((e) => e.rendered_in !== t), ...e.dependencies];
+			let n = l.components.some((e) => e.type === "state"), r = l.dependencies.some((e) => e.targets.some((e) => e[1] === "unload"));
+			l.connect_heartbeat = n || r, await ve(l), L({
+				type: "render",
+				data: e,
+				endpoint: j,
+				fn_index: C
+			});
+		}
+		let R = this.handle_blob(l.root, oe, w).then(async (e) => {
+			let t = G(e, T, l.components, "input", !0);
+			if (Gt(D, he, t || []), M = {
+				data: t || [],
+				event_data: n,
+				fn_index: C,
+				trigger_id: r,
+				...b.oauth_token && w?.oauth_token ? { oauth_token: b.oauth_token } : {}
+			}, Te(C, l)) L({
+				type: "status",
+				endpoint: j,
+				stage: "pending",
+				queue: !1,
+				fn_index: C,
+				time: /* @__PURE__ */ new Date()
+			}), re(`${l.root}${x}/run${j.startsWith("/") ? j : `/${j}`}${F ? "?" + F : ""}`, {
+				...M,
+				session_hash: f
+			}, O).then(async ([e, t]) => {
+				let i = e.data;
+				if (t == 200) L({
+					type: "data",
+					endpoint: j,
+					fn_index: C,
+					data: G(i, T, l.components, "output", b.with_null_state),
+					time: /* @__PURE__ */ new Date(),
+					event_data: n,
+					trigger_id: r
+				}), e.render_config && await xe(e.render_config), L({
+					type: "status",
+					endpoint: j,
+					fn_index: C,
+					stage: "complete",
+					eta: e.average_duration,
+					queue: !1,
+					time: /* @__PURE__ */ new Date()
+				});
+				else {
+					let t = e?.error === y;
+					L({
+						type: "status",
+						stage: "error",
+						endpoint: j,
+						fn_index: C,
+						message: e.error,
+						broken: t,
+						queue: !1,
+						time: /* @__PURE__ */ new Date()
+					});
+				}
+			}).catch((e) => {
+				L({
+					type: "status",
+					stage: "error",
+					message: e.message,
+					endpoint: j,
+					fn_index: C,
+					queue: !1,
+					time: /* @__PURE__ */ new Date()
+				});
+			});
+			else if (E == "sse") {
+				L({
+					type: "status",
+					stage: "pending",
+					queue: !0,
+					endpoint: j,
+					fn_index: C,
+					time: /* @__PURE__ */ new Date()
+				});
+				var i = new URLSearchParams({
+					fn_index: C.toString(),
+					session_hash: f
+				}).toString();
+				let e = new URL(`${l.root}${x}/${u}?${F ? F + "&" : ""}${i}`);
+				if (this.jwt && e.searchParams.set("__sign", this.jwt), k = this.stream(e), !k) return Promise.reject(/* @__PURE__ */ Error("Cannot connect to SSE endpoint: " + e.toString()));
+				k.onmessage = async function(e) {
+					let { type: t, status: i, data: a } = ye(JSON.parse(e.data), ge[C]);
+					if (t === "update" && i && !P) L({
+						type: "status",
+						endpoint: j,
+						fn_index: C,
+						time: /* @__PURE__ */ new Date(),
+						...i
+					}), i.stage === "error" && (k?.close(), H());
+					else if (t === "data") {
+						let [e, t] = await re(`${l.root}${x}/queue/data`, {
+							...M,
+							session_hash: f,
+							event_id: N
+						}, O);
+						t !== 200 && (L({
+							type: "status",
+							stage: "error",
+							message: y,
+							queue: !0,
+							endpoint: j,
+							fn_index: C,
+							time: /* @__PURE__ */ new Date()
+						}), k?.close(), H());
+					} else t === "complete" ? P = i : t === "log" ? L({
+						type: "log",
+						title: a.title,
+						log: a.log,
+						level: a.level,
+						endpoint: j,
+						duration: a.duration,
+						visible: a.visible,
+						fn_index: C
+					}) : (t === "generating" || t === "streaming") && L({
+						type: "status",
+						time: /* @__PURE__ */ new Date(),
+						...i,
+						stage: i?.stage,
+						queue: !0,
+						endpoint: j,
+						fn_index: C
+					});
+					a && (L({
+						type: "data",
+						time: /* @__PURE__ */ new Date(),
+						data: G(a.data, T, l.components, "output", b.with_null_state),
+						endpoint: j,
+						fn_index: C,
+						event_data: n,
+						trigger_id: r
+					}), P && (L({
+						type: "status",
+						time: /* @__PURE__ */ new Date(),
+						...P,
+						stage: i?.stage,
+						queue: !0,
+						endpoint: j,
+						fn_index: C
+					}), k?.close(), H()));
+				};
+			} else if (E == "sse_v1" || E == "sse_v2" || E == "sse_v2.1" || E == "sse_v3") {
+				L({
+					type: "status",
+					stage: "pending",
+					queue: !0,
+					endpoint: j,
+					fn_index: C,
+					time: /* @__PURE__ */ new Date()
+				});
+				let e = "";
+				typeof window < "u" && typeof document < "u" && (e = window?.location?.hostname);
+				let t = Ke(e);
+				return (typeof window < "u" && typeof document < "u" && window.parent != window && t && window.supports_zerogpu_headers ? Ee("zerogpu-headers", t) : Promise.resolve(null)).then((e) => {
+					let t = {
+						...O,
+						...e || {}
+					};
+					return re(`${l.root}${x}/${d}?${F}`, {
+						...M,
+						session_hash: f
+					}, t);
+				}).then(async ([e, t]) => {
+					if (e.event_id && (A = e.event_id), t === 503) L({
+						type: "status",
+						stage: "error",
+						message: ie,
+						queue: !0,
+						endpoint: j,
+						fn_index: C,
+						time: /* @__PURE__ */ new Date(),
+						visible: !0
+					}), H();
+					else if (t === 422) L({
+						type: "status",
+						stage: "error",
+						message: e.detail,
+						queue: !0,
+						endpoint: j,
+						fn_index: C,
+						code: "validation_error",
+						time: /* @__PURE__ */ new Date(),
+						visible: !0
+					}), H();
+					else if (t !== 200) {
+						let t = e?.error === y;
+						L({
+							type: "status",
+							stage: "error",
+							broken: t,
+							message: t ? y : e.detail || e.error,
+							queue: !0,
+							endpoint: j,
+							fn_index: C,
+							time: /* @__PURE__ */ new Date(),
+							visible: !0
+						}), H();
+					} else {
+						N = e.event_id, A = N;
+						let t = async function(e) {
+							try {
+								let { type: t, status: n, data: r, original_msg: i } = ye(e, ge[C]);
+								if (t == "heartbeat") return;
+								if (t === "update" && n && !P) L({
+									type: "status",
+									endpoint: j,
+									fn_index: C,
+									time: /* @__PURE__ */ new Date(),
+									original_msg: i,
+									...n
+								});
+								else if (t === "complete") P = n;
+								else if (t == "unexpected_error" || t == "broken_connection") {
+									console.error("Unexpected error", n?.message);
+									let e = t === "broken_connection";
+									L({
+										type: "status",
+										stage: "error",
+										message: n?.message || "An Unexpected Error Occurred!",
+										queue: !0,
+										endpoint: j,
+										broken: e,
+										session_not_found: n?.session_not_found,
+										fn_index: C,
+										time: /* @__PURE__ */ new Date()
+									});
+								} else if (t === "log") {
+									L({
+										type: "log",
+										title: r.title,
+										log: r.log,
+										level: r.level,
+										endpoint: j,
+										duration: r.duration,
+										visible: r.visible,
+										fn_index: C
+									});
+									return;
+								} else (t === "generating" || t === "streaming") && (L({
+									type: "status",
+									time: /* @__PURE__ */ new Date(),
+									...n,
+									stage: n?.stage,
+									queue: !0,
+									endpoint: j,
+									fn_index: C
+								}), r && T.connection !== "stream" && [
+									"sse_v2",
+									"sse_v2.1",
+									"sse_v3"
+								].includes(E) && nt(_, N, r));
+								r && (L({
+									type: "data",
+									time: /* @__PURE__ */ new Date(),
+									data: G(r.data, T, l.components, "output", b.with_null_state),
+									endpoint: j,
+									fn_index: C
+								}), r.render_config && await xe(r.render_config), P && (L({
+									type: "status",
+									time: /* @__PURE__ */ new Date(),
+									...P,
+									stage: n?.stage,
+									queue: !0,
+									endpoint: j,
+									fn_index: C
+								}), H())), (n?.stage === "complete" || n?.stage === "error") && (v[N] && delete v[N], N in _ && delete _[N], H());
+							} catch (e) {
+								console.error("Unexpected client exception", e), L({
+									type: "status",
+									stage: "error",
+									message: "An Unexpected Error Occurred!",
+									queue: !0,
+									endpoint: j,
+									fn_index: C,
+									time: /* @__PURE__ */ new Date()
+								}), [
+									"sse_v2",
+									"sse_v2.1",
+									"sse_v3"
+								].includes(E) && (tt(h, S.abort_controller), h.open = !1, H());
+							}
+						};
+						N in g && (g[N].forEach((e) => t(e)), delete g[N]), v[N] = t, ee.add(N), h.open || await this.open_stream();
+					}
+				});
+			}
+		});
+		R.catch((e) => {
+			L({
+				type: "status",
+				stage: "error",
+				message: e instanceof Error ? e.message : String(e),
+				queue: !Te(C, l),
+				endpoint: j,
+				fn_index: C,
+				time: /* @__PURE__ */ new Date()
+			}), H();
+		});
+		let z = !1, B = [], V = [];
+		function H() {
+			for (z = !0; V.length > 0;) V.shift()({
+				value: void 0,
+				done: !0
+			});
+		}
+		function U(e) {
+			V.length > 0 ? V.shift()(e) : B.push(e);
+		}
+		function Se(e) {
+			U(Yt(e)), H();
+		}
+		function Ce(e) {
+			U({
+				value: e,
+				done: !1
+			});
+		}
+		function we() {
+			return B.length > 0 ? Promise.resolve(B.shift()) : z ? Promise.resolve({
+				value: void 0,
+				done: !0
+			}) : new Promise((e) => V.push(e));
+		}
+		let W = {
+			[Symbol.asyncIterator]: () => W,
+			next: we,
+			throw: async (e) => (Se(e), we()),
+			return: async () => (H(), {
+				value: void 0,
+				done: !0
+			}),
+			cancel: _e,
+			send_chunk: (e) => {
+				this.post_data(`${l.root}${x}/stream/${A}`, {
+					...e,
+					session_hash: this.session_hash
+				});
+			},
+			close_stream: () => {
+				this.post_data(`${l.root}${x}/stream/${A}/close`, {}), H();
+			},
+			event_id: () => A,
+			wait_for_id: async () => (await R, N)
+		};
+		return W;
+	} catch (e) {
+		throw console.error("Submit function encountered an error:", e), e;
+	}
+}
+function Yt(e) {
+	return { then: (t, n) => n(e) };
+}
+function Xt(e, t, n, r) {
+	let i, a, o;
+	if (typeof t == "number") i = t, a = e.unnamed_endpoints[i], o = r.dependencies.find((e) => e.id == t);
+	else {
+		let s = t.replace(/^\//, "");
+		i = n[s], a = e.named_endpoints[t.trim()] ?? e.named_endpoints[`/${s}`], o = r.dependencies.find((e) => e.id == n[s]);
+	}
+	if (typeof i != "number" || !o) {
+		let e = r.dependencies.filter((e) => e.api_name).map((e) => `"/${e.api_name}"`).join(", ");
+		throw Error(`No endpoint matching ${JSON.stringify(t)} was found. ` + (e ? `Valid named endpoints are: ${e}. ` : "This app exposes no named endpoints. ") + "An fn_index (number) of an existing dependency can also be used.");
+	}
+	return {
+		fn_index: i,
+		endpoint_info: a,
+		dependency: o
+	};
+}
+//#endregion
+//#region src/client.ts
+var $ = class {
+	app_reference;
+	options;
+	deep_link = null;
+	config;
+	api_prefix = "";
+	api_info;
+	api_map = {};
+	session_hash = Math.random().toString(36).substring(2);
+	jwt = !1;
+	last_status = {};
+	cookies = null;
+	stream_status = { open: !1 };
+	closed = !1;
+	pending_stream_messages = {};
+	pending_diff_streams = {};
+	event_callbacks = {};
+	unclosed_events = /* @__PURE__ */ new Set();
+	heartbeat_event = null;
+	abort_controller = null;
+	stream_instance = null;
+	current_payload;
+	get_url_config(e = null) {
+		if (!this.config) throw Error(b);
+		e === null && (e = window.location.href);
+		let t = (e) => e.replace(/^\/+|\/+$/g, ""), n = t(new URL(this.config.root).pathname), r = t(new URL(e).pathname), i;
+		return i = r.startsWith(n) ? t(r.substring(n.length)) : "", this.get_page_config(i);
+	}
+	get_page_config(e) {
+		if (!this.config) throw Error(b);
+		let t = this.config;
+		return e in t.page || (e = ""), {
+			...t,
+			current_page: e,
+			layout: t.page[e].layout,
+			components: t.components.filter((n) => t.page[e].components.includes(n.id)),
+			dependencies: this.config.dependencies.filter((n) => t.page[e].dependencies.includes(n.id))
+		};
+	}
+	fetch(e, t) {
+		let n = new Headers(t?.headers || {});
+		return this && this.cookies && n.append("Cookie", this.cookies), this && this.options.headers && new Headers(this.options.headers).forEach((e, t) => {
+			n.append(t, e);
+		}), fetch(e, {
+			...t,
+			headers: n
+		});
+	}
+	stream(e) {
+		let t = new Headers();
+		return this && this.cookies && t.append("Cookie", this.cookies), this && this.options.headers && new Headers(this.options.headers).forEach((e, n) => {
+			t.append(n, e);
+		}), this && this.options.token && t.append("Authorization", `Bearer ${this.options.token}`), this.abort_controller = new AbortController(), this.stream_instance = at(e.toString(), {
+			credentials: this.options.credentials ?? "same-origin",
+			headers: t,
+			signal: this.abort_controller.signal
+		}), this.stream_instance;
+	}
+	view_api;
+	upload_files;
+	upload;
+	handle_blob;
+	post_data;
+	submit;
+	predict;
+	open_stream;
+	resolve_config;
+	resolve_cookies;
+	constructor(e, t = { events: ["data"] }) {
+		this.app_reference = e, this.deep_link = t.query_params?.deep_link || null, t.events ||= ["data"], D(t), this.options = t, this.current_payload = {}, t.cookies && (this.cookies = t.cookies), this.view_api = xe.bind(this), this.upload_files = R.bind(this), this.handle_blob = ke.bind(this), this.post_data = Ne.bind(this), this.submit = Jt.bind(this), this.predict = Pe.bind(this), this.open_stream = et.bind(this), this.resolve_config = he.bind(this), this.resolve_cookies = A.bind(this), this.upload = V.bind(this), this.fetch = this.fetch.bind(this), this.handle_space_success = this.handle_space_success.bind(this), this.stream = this.stream.bind(this);
+	}
+	async init() {
+		qe(), this.options.auth && await this.resolve_cookies(), await this._resolve_config().then((e) => e?.config && this._resolve_heartbeat(e.config));
+		try {
+			this.api_info = await this.view_api();
+		} catch (e) {
+			console.error(e.message);
+		}
+		this.api_map = me(this.config?.dependencies || []);
+	}
+	async _resolve_heartbeat(e) {
+		if (e && (this.config = e, this.api_prefix = e.api_prefix || "", this.config && this.config.connect_heartbeat && this.config.space_id && this.options.token && (this.jwt = await pe(this.config.space_id, this.options.token, this.cookies))), e.space_id && this.options.token && (this.jwt = await pe(e.space_id, this.options.token)), this.config && this.config.connect_heartbeat) {
+			let e = new URL(`${this.config.root}${this.api_prefix}/${v}/${this.session_hash}`);
+			this.jwt && e.searchParams.set("__sign", this.jwt), this.heartbeat_event ||= this.stream(e);
+		}
+	}
+	static async connect(e, t = { events: ["data"] }) {
+		let n = new this(e, t);
+		return t.session_hash && (n.session_hash = t.session_hash), await n.init(), n;
+	}
+	async reconnect() {
+		let e = new URL(`${this.config.root}${this.api_prefix}/${re}`), t;
+		try {
+			let n = await this.fetch(e);
+			if (!n.ok) throw Error();
+			t = (await n.json()).app_id;
+		} catch {
+			return "broken";
+		}
+		return t === this.config.app_id ? "connected" : "changed";
+	}
+	close() {
+		this.closed = !0, tt(this.stream_status, this.abort_controller);
+	}
+	async refresh() {
+		if (!this.config) throw Error(b);
+		let e = await this.resolve_config(this.config.root, !1);
+		if (!e) throw Error(b);
+		this.config = e, this.api_prefix = e.api_prefix || "", this.api_map = me(e.dependencies || []);
+		try {
+			this.api_info = await this.view_api();
+		} catch (e) {
+			console.error(ae + e.message);
+		}
+		return this.get_url_config();
+	}
+	set_current_payload(e) {
+		this.current_payload = e;
+	}
+	static async duplicate(e, t = { events: ["data"] }) {
+		return Ve(e, t);
+	}
+	async _resolve_config() {
+		let { http_protocol: e, host: t, space_id: n } = await F(this.app_reference, this.options.token), { status_callback: r } = this.options;
+		n && r && await Fe(n, r);
+		let i;
+		try {
+			let n = `${e}//${t}`;
+			if (i = await this.resolve_config(n), !i) throw Error(b);
+			return this.config_success(i);
+		} catch (e) {
+			if (n && r) K(n, P.test(n) ? "space_name" : "subdomain", this.handle_space_success);
+			else throw r && r({
+				status: "error",
+				message: "Could not load this space.",
+				load_status: "error",
+				detail: "NOT_FOUND"
+			}), e instanceof Error ? e : Error(String(e));
+		}
+	}
+	async config_success(e) {
+		if (this.config = e, this.api_prefix = e.api_prefix || "", e.run_history === !1 && zt({
+			app_id: e.app_id,
+			username: e.username
+		}), this.config.auth_required) return this.prepare_return_obj();
+		try {
+			this.api_info = await this.view_api();
+		} catch (e) {
+			console.error(ae + e.message);
+		}
+		return this.prepare_return_obj();
+	}
+	async handle_space_success(e) {
+		if (!this) throw Error(b);
+		let { status_callback: t } = this.options;
+		if (t && t(e), e.status === "running") try {
+			if (this.config = await this._resolve_config(), this.api_prefix = this?.config?.api_prefix || "", !this.config) throw Error(b);
+			return await this.config_success(this.config);
+		} catch (e) {
+			throw t && t({
+				status: "error",
+				message: "Could not load this space.",
+				load_status: "error",
+				detail: "NOT_FOUND"
+			}), e;
+		}
+	}
+	async component_server(e, t, n) {
+		if (!this.config) throw Error(b);
+		let r = {}, { token: i } = this.options, { session_hash: a } = this;
+		i && (r.Authorization = `Bearer ${this.options.token}`);
+		let o, s = this.config.components.find((t) => t.id === e);
+		o = s?.props?.root_url ? s.props.root_url : this.config.root;
+		let c;
+		if (typeof n == "object" && n && "binary" in n) {
+			let r = n;
+			c = new FormData();
+			for (let e in r.data) e !== "binary" && c.append(e, r.data[e]);
+			c.set("component_id", e.toString()), c.set("fn_name", t), c.set("session_hash", a);
+		} else c = JSON.stringify({
+			data: n,
+			component_id: e,
+			fn_name: t,
+			session_hash: a
+		}), r["Content-Type"] = "application/json";
+		i && (r.Authorization = `Bearer ${i}`);
+		try {
+			let e = await this.fetch(`${o}${this.api_prefix}/${ee}/`, {
+				method: "POST",
+				body: c,
+				headers: r,
+				credentials: this.options.credentials ?? "same-origin"
+			});
+			if (!e.ok) throw Error("Could not connect to component server: " + e.statusText);
+			return await e.json();
+		} catch (e) {
+			console.warn(e);
+		}
+	}
+	set_cookies(e) {
+		this.cookies = N(e).join("; ");
+	}
+	prepare_return_obj() {
+		return {
+			config: this.config,
+			predict: this.predict,
+			submit: this.submit,
+			view_api: this.view_api,
+			component_server: this.component_server
+		};
+	}
+};
+async function Zt(e, t = { events: ["data"] }) {
+	return await $.connect(e, t);
+}
+async function Qt(e, t) {
+	return await $.duplicate(e, t);
+}
+//#endregion
+//#region src/utils/bucket_sync.ts
+var $t = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-][a-zA-Z0-9_./-]*$/;
+function en(e) {
+	return $t.test(e) ? !e.split("/").some((e) => e === "" || e === "." || e === "..") : !1;
+}
+function tn(e, t, n) {
+	let r = n ? `?${new URLSearchParams(n)}` : "", i = e.replace(/\/+$/, "");
+	return i ? `${i}/gradio_api/run-history/${t}${r}` : typeof document < "u" && document.baseURI ? new URL(`gradio_api/run-history/${t}${r}`, document.baseURI).toString() : `gradio_api/run-history/${t}${r}`;
+}
+async function nn(e) {
+	try {
+		let t = await e.json();
+		return typeof t?.detail == "string" ? t.detail : `${e.status}`;
+	} catch {
+		return `${e.status}`;
+	}
+}
+async function rn(e, t, n, r) {
+	try {
+		let i = await fetch(e, {
+			credentials: "include",
+			...t
+		});
+		return i.ok ? {
+			ok: !0,
+			status: i.status,
+			data: r(await i.json())
+		} : {
+			ok: !1,
+			status: i.status,
+			data: n,
+			detail: await nn(i)
+		};
+	} catch (e) {
+		return {
+			ok: !1,
+			status: 0,
+			data: n,
+			detail: String(e)
+		};
+	}
+}
+async function an(e, t) {
+	return en(t) ? rn(tn(e, "connect"), {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ bucket_id: t })
+	}, null, () => null) : {
+		ok: !1,
+		status: 422,
+		data: null,
+		detail: "invalid bucket id"
+	};
+}
+async function on(e) {
+	return rn(tn(e, "buckets"), {}, [], (e) => Array.isArray(e?.buckets) ? e.buckets : []);
+}
+async function sn(e, t) {
+	return rn(tn(e, "records", { bucket: t }), {}, [], (e) => Array.isArray(e?.records) ? e.records : []);
+}
+function cn(e, t, n, r, i) {
+	return tn(e, `records/${encodeURIComponent(n)}/${encodeURIComponent(r)}/assets/${encodeURIComponent(i)}`, { bucket: t });
+}
+//#endregion
+
+window.__gradio = { Client: $, FileData: U, MISSING_CREDENTIALS_MSG: oe, apply_run_history_replay: Ut, asset_url: cn, clear_run_history: zt, client: Zt, connect_bucket: an, consume_run_history_replay: Ht, delete_run_history: Bt, duplicate: Qt, handle_file: De, is_valid_bucket_id: en, list_bucket_records: sn, list_user_buckets: on, on_run_history_change: qt, predict: Pe, prepare_files: H, read_run_history: It, read_run_history_storage: Lt, run_history_url: dt, set_run_history_storage: Rt, stage_run_history_replay: Vt, submit: Jt, upload: V, upload_files: R };
+
+</script>
+
+<script type="module">
+// ================================================================
+// Demo configuration
+// ================================================================
+const GARMENT = {
+  dataUrl: document.getElementById("garmentImg").getAttribute("src"),
+  // IDM-VTON uses this description in its prompt ("model is wearing …"). Change it if you swap the garment.
+  description: "navy and light blue color-block short sleeve polo shirt",
+  type: "upper_body", // upper_body | lower_body | dresses
+};
+
+const BACKENDS = {
+  idm: {
+    id: "idm", label: "IDM-VTON", kind: "gradio", space: "yisol/IDM-VTON",
+    endpoint: "/tryon",
+    // Signature verified against the Space's /info (Gradio 4.24):
+    // dict(ImageEditor), garm_img, garment_des, is_checked(auto-mask), is_checked_crop, denoise_steps, seed
+    args: ({ person, garment, steps }) => [
+      { background: person, layers: [], composite: null }, garment, GARMENT.description, true, false, steps, 42,
+    ],
+    pick: (data) => data[0],
+    minSteps: 10,
+  },
+  leffa: {
+    id: "leffa", label: "Leffa", kind: "gradio", space: "franciszzj/Leffa",
+    endpoint: "/leffa_predict_vt",
+    // Signature verified against /gradio_api/info (Gradio 5.38): src, ref, ref_acceleration, step(>=30), scale, seed, vt_model_type, vt_garment_type, vt_repaint
+    args: ({ person, garment, steps }) => [person, garment, false, Math.max(30, steps), 2.5, 42, "viton_hd", GARMENT.type, false],
+    pick: (data) => data[0],
+    minSteps: 30,
+  },
+  fal: {
+    id: "fal", label: "fal.ai (Leffa)", kind: "fal", model: "fal-ai/leffa/virtual-tryon",
+  },
+};
+
+const OUT_W = 768, OUT_H = 1024; // native model resolution (3:4)
+
+// ================================================================
+// Persistent settings
+// ================================================================
+const LS = (k, d = "") => localStorage.getItem("vton." + k) ?? d;
+const settings = {
+  get hfToken() { return LS("hfToken").trim(); },
+  get falKey() { return LS("falKey").trim(); },
+  get ipToken() { return LS("ipToken").trim(); },
+  get order() { return LS("order", "idm,fal,leffa").split(",").filter(Boolean); },
+  get steps() { return Number(LS("steps", "30")) || 30; },
+  get timeoutSec() { return Math.min(600, Math.max(30, Number(LS("timeout", "150")) || 150)); },
+  get customUrl() { return LS("customUrl").trim(); },
+};
+const bind = (id, key) => {
+  const el = document.getElementById(id);
+  el.value = LS(key, el.value);
+  el.addEventListener("change", () => { localStorage.setItem("vton." + key, el.value); log(`ajuste ${key} actualizado`); });
+};
+bind("setHfToken", "hfToken"); bind("setIpToken", "ipToken"); bind("setFalKey", "falKey"); bind("setOrder", "order");
+bind("setSteps", "steps"); bind("setTimeout", "timeout"); bind("setCustomUrl", "customUrl");
+
+// ================================================================
+// UI helpers
+// ================================================================
+const $ = (id) => document.getElementById(id);
+const els = {
+  cam: $("cam"), guide: $("guide"), countdown: $("countdown"), before: $("before"), beforeCaption: $("beforeCaption"),
+  after: $("after"), afterCaption: $("afterCaption"), afterPlaceholder: $("afterPlaceholder"), afterBusy: $("afterBusy"), afterBusyText: $("afterBusyText"),
+  status: $("status"), statusText: $("statusText"), statusDetail: $("statusDetail"), timer: $("timer"),
+  errorbox: $("errorbox"), errorText: $("errorText"), errorHint: $("errorHint"), pills: $("pills"), log: $("log"),
+  btnCapture: $("btnCapture"), btnGenerate: $("btnGenerate"), btnRetake: $("btnRetake"), btnCancel: $("btnCancel"),
+  btnDownload: $("btnDownload"), btnCamera: $("btnCamera"),
+};
+
+const logLines = [];
+function log(msg) {
+  const line = `${new Date().toLocaleTimeString("es-CO", { hour12: false })}  ${msg}`;
+  logLines.push(line); if (logLines.length > 300) logLines.shift();
+  els.log.textContent = logLines.join("\n"); els.log.scrollTop = els.log.scrollHeight;
+  console.log("[probador]", msg);
+}
+
+const app = { state: "boot", stream: null, photoBlob: null, photoDataUrl: null, resultBlob: null, resultUrl: null, abort: null, timer: null, t0: 0 };
+window.__vton = app; // for diagnostics
+
+function setStatus(kind, text, detail = "") {
+  els.status.className = "statusbar " + kind;
+  els.statusText.textContent = text;
+  els.statusDetail.textContent = detail;
+}
+function showError(text, hint = "") {
+  els.errorText.textContent = text; els.errorHint.textContent = hint;
+  els.errorbox.classList.add("on");
+  log("ERROR: " + text + (hint ? " | " + hint : ""));
+}
+function clearError() { els.errorbox.classList.remove("on"); }
+
+function show(el, on) { el.hidden = !on; }
+function setState(state) {
+  app.state = state;
+  const s = (name) => state === name;
+  show(els.btnCapture, s("camera-ready") || s("countdown")); els.btnCapture.disabled = !s("camera-ready");
+  show(els.btnGenerate, s("captured") || s("done") || s("error-gen"));
+  show(els.btnRetake, s("captured") || s("generating") || s("done") || s("error-gen"));
+  show(els.btnCancel, s("generating"));
+  show(els.btnDownload, s("done"));
+  show(els.btnCamera, s("camera-error"));
+  // "Before" panel: live video or still photo
+  const live = s("camera-request") || s("camera-ready") || s("countdown") || s("camera-error");
+  els.cam.style.display = live ? "block" : "none";
+  els.guide.style.display = live && !s("camera-error") ? "block" : "none";
+  show(els.before, !live && !!app.photoDataUrl);
+  els.beforeCaption.textContent = live ? "cámara en vivo · espejo" : "foto enviada al modelo · sin espejo";
+  // "After" panel
+  show(els.afterPlaceholder, !s("generating") && !s("done"));
+  show(els.afterBusy, s("generating"));
+  show(els.after, s("done"));
+}
+
+function startTimer() {
+  app.t0 = performance.now(); stopTimer();
+  app.timer = setInterval(() => { els.timer.textContent = `${Math.floor((performance.now() - app.t0) / 1000)} s`; }, 250);
+  els.timer.textContent = "0 s";
+}
+function stopTimer() { if (app.timer) clearInterval(app.timer); app.timer = null; }
+
+const sleep = (ms, signal) => new Promise((res, rej) => {
+  const t = setTimeout(res, ms);
+  signal?.addEventListener("abort", () => { clearTimeout(t); rej(new DOMException("Cancelado", "AbortError")); }, { once: true });
+});
+function withTimeout(promise, ms, what) {
+  return new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error(`${what}: tiempo agotado (${Math.round(ms / 1000)} s)`)), ms);
+    promise.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+  });
+}
+function dataUrlToBlob(dataUrl) {
+  const [head, b64] = dataUrl.split(",");
+  const mime = /data:([^;]+)/.exec(head)?.[1] || "application/octet-stream";
+  const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+const garmentBlob = dataUrlToBlob(GARMENT.dataUrl);
+
+// ================================================================
+// Camera
+// ================================================================
+function cameraErrorInfo(e) {
+  const n = e?.name || "";
+  if (n === "NotAllowedError" || n === "SecurityError")
+    return ["Permiso de cámara denegado.", "En Chrome: clic en el icono a la izquierda de la URL → Cámara → Permitir, y luego «Reintentar cámara». Si abriste el archivo por doble clic, el permiso se pide para file://."];
+  if (n === "NotFoundError" || n === "OverconstrainedError")
+    return ["No se encontró ninguna cámara.", "Comprueba que la tapa/interruptor de la cámara esté abierto y que no falte el dispositivo en Ajustes del sistema → Privacidad → Cámara."];
+  if (n === "NotReadableError" || n === "AbortError")
+    return ["La cámara está ocupada o no responde.", "Cierra Zoom, FaceTime, Teams, Photo Booth u otra pestaña que la esté usando y pulsa «Reintentar cámara»."];
+  return [`No se pudo abrir la cámara (${n || "error desconocido"}).`, e?.message || ""];
+}
+
+async function startCamera() {
+  clearError(); setState("camera-request"); setStatus("busy", "Pidiendo acceso a la cámara…");
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setState("camera-error"); setStatus("err", "Este navegador no expone la cámara");
+    showError("navigator.mediaDevices no está disponible.", "Abre este archivo con Google Chrome. file:// cuenta como contexto seguro en Chrome; http:// remoto no.");
+    return;
+  }
+  try {
+    if (app.stream) app.stream.getTracks().forEach((t) => t.stop());
+    app.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } });
+    els.cam.srcObject = app.stream;
+    await els.cam.play().catch(() => {});
+    const track = app.stream.getVideoTracks()[0];
+    const st = track?.getSettings?.() || {};
+    log(`cámara lista: ${track?.label || "?"} ${st.width || "?"}x${st.height || "?"}`);
+    track?.addEventListener("ended", () => { log("la pista de vídeo terminó"); if (app.state === "camera-ready") { setState("camera-error"); setStatus("err", "La cámara se desconectó"); } });
+    setState("camera-ready"); setStatus("ok", "Cámara lista", "Colócate dentro del marco y pulsa Capturar");
+    layoutGuide(); requestAnimationFrame(layoutGuide);
+  } catch (e) {
+    const [msg, hint] = cameraErrorInfo(e);
+    setState("camera-error"); setStatus("err", "Sin cámara"); showError(msg, hint);
+  }
+}
+
+// Centered 3:4 region that gets captured, in video coordinates
+function cropRegion(vw, vh) {
+  let cw = Math.round(vh * 3 / 4), ch = vh;
+  if (cw > vw) { cw = vw; ch = Math.round(vw * 4 / 3); }
+  return { cw, ch, sx: Math.round((vw - cw) / 2), sy: Math.round((vh - ch) / 2) };
+}
+
+// Draws the guide frame over the video area that is actually cropped (object-fit: contain → video is centered)
+function layoutGuide() {
+  const vw = els.cam.videoWidth, vh = els.cam.videoHeight;
+  if (!vw || !vh) return;
+  const r = els.cam.getBoundingClientRect();
+  const scale = Math.min(r.width / vw, r.height / vh);
+  const { cw, ch } = cropRegion(vw, vh);
+  els.guide.style.width = `${Math.round(cw * scale)}px`;
+  els.guide.style.height = `${Math.round(ch * scale)}px`;
+}
+window.addEventListener("resize", layoutGuide);
+els.cam.addEventListener("loadedmetadata", layoutGuide);
+els.cam.addEventListener("resize", layoutGuide);
+
+// UNMIRRORED capture: the frame is drawn as the camera sees it, cropped to the central 3:4.
+async function capture() {
+  if (app.state !== "camera-ready") return;
+  clearError(); setState("countdown"); setStatus("busy", "Capturando…", "3, 2, 1…");
+  for (let n = 3; n >= 1; n--) {
+    els.countdown.textContent = String(n); els.countdown.classList.add("on");
+    await sleep(700);
+  }
+  els.countdown.classList.remove("on");
+  const vw = els.cam.videoWidth, vh = els.cam.videoHeight;
+  if (!vw || !vh) { setState("camera-ready"); setStatus("warn", "La cámara aún no entrega imagen", "Espera un segundo y vuelve a capturar"); return; }
+  const { cw, ch, sx, sy } = cropRegion(vw, vh);
+  const canvas = document.createElement("canvas"); canvas.width = OUT_W; canvas.height = OUT_H;
+  const ctx = canvas.getContext("2d"); ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(els.cam, sx, sy, cw, ch, 0, 0, OUT_W, OUT_H);
+  app.photoBlob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.92));
+  app.photoDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  els.before.src = app.photoDataUrl;
+  app.resultBlob = null; if (app.resultUrl) { URL.revokeObjectURL(app.resultUrl); app.resultUrl = null; }
+  log(`foto capturada ${OUT_W}x${OUT_H} (${Math.round(app.photoBlob.size / 1024)} KB) desde ${vw}x${vh}, recorte ${cw}x${ch}`);
+  setState("captured"); setStatus("ok", "Foto lista", "Pulsa Generar, o Repetir foto si no te convence");
+}
+
+function retake() {
+  if (app.state === "generating") cancelGeneration("Repetir foto");
+  app.photoBlob = null; app.photoDataUrl = null; app.resultBlob = null;
+  if (app.resultUrl) { URL.revokeObjectURL(app.resultUrl); app.resultUrl = null; }
+  els.before.removeAttribute("src"); els.after.removeAttribute("src"); els.timer.textContent = "";
+  clearError();
+  if (app.stream && app.stream.getVideoTracks()[0]?.readyState === "live") { setState("camera-ready"); setStatus("ok", "Cámara lista", "Colócate dentro del marco y pulsa Capturar"); requestAnimationFrame(layoutGuide); }
+  else startCamera();
+}
+
+// ================================================================
+// Generation (fallback chain)
+// ================================================================
+const clients = new Map(); // backend id -> Client
+
+async function getClient(b) {
+  const key = b.id + "|" + settings.hfToken + "|" + settings.ipToken + "|" + settings.customUrl;
+  if (clients.has(key)) return clients.get(key);
+  const { Client } = window.__gradio;
+  const target = (b.id === "idm" && settings.customUrl) ? settings.customUrl : b.space;
+  const opts = { events: ["status", "data"] };
+  if (settings.hfToken) opts.token = settings.hfToken; // client 2.6 sends it as Authorization: Bearer
+  if (settings.ipToken) opts.headers = { "x-ip-token": settings.ipToken }; // header ZeroGPU uses to attribute quota
+  const p = Client.connect(target, opts).then((c) => { log(`${b.label}: conectado (gradio ${c.config?.version || "?"}) a ${target}`); return c; });
+  clients.set(key, p);
+  p.catch(() => clients.delete(key));
+  return p;
+}
+
+async function runGradio(b, ctl) {
+  ctl.phase(`Conectando con ${b.label}…`);
+  const client = await withTimeout(getClient(b), 40000, `Conexión con ${b.label}`);
+  const { handle_file } = window.__gradio;
+  const steps = Math.max(b.minSteps || 1, settings.steps);
+  const args = b.args({ person: handle_file(app.photoBlob), garment: handle_file(garmentBlob), steps });
+  ctl.phase(`Enviando imágenes a ${b.label}…`);
+  const job = client.submit(b.endpoint, args);
+  ctl.onCancel(() => { try { job.cancel(); } catch {} });
+  let data = null;
+  const consume = (async () => {
+    for await (const msg of job) {
+      if (ctl.signal.aborted) throw new DOMException("Cancelado", "AbortError");
+      if (msg.type === "status") {
+        if (msg.stage === "error") throw new Error(msg.message || msg.title || `Error del modelo ${b.label}`);
+        if (msg.stage === "pending") {
+          const pos = msg.position, eta = msg.eta;
+          ctl.phase(pos > 0 ? `En cola en ${b.label}: posición ${pos}${eta ? ` · ~${Math.round(eta)} s` : ""}` : `Generando con ${b.label}…`);
+        }
+        if (msg.stage === "complete") { if (data) break; }
+      } else if (msg.type === "data") { data = msg.data; if (data) break; }
+    }
+  })();
+  await Promise.race([
+    consume,
+    sleep(settings.timeoutSec * 1000, ctl.signal).then(() => { try { job.cancel(); } catch {} throw new Error(`${b.label}: tiempo agotado (${settings.timeoutSec} s)`); }),
+  ]);
+  const file = b.pick(data || []);
+  const url = file?.url || (file?.path ? `${client.config.root}${client.api_prefix || ""}/file=${file.path}` : null);
+  if (!url) throw new Error(`${b.label} no devolvió imagen`);
+  ctl.phase("Descargando resultado…");
+  const tDl = performance.now();
+  const headers = settings.hfToken ? { Authorization: `Bearer ${settings.hfToken}` } : {};
+  // The Space's /file= endpoint serves ~25 KB/s (measured): a ~600 KB PNG takes 20-50 s. Parallel range requests
+  // were slower in Chrome (everything shares one HTTP/2 connection), so this is a plain download.
+  const r = await fetch(url, { headers, signal: ctl.signal });
+  if (!r.ok) throw new Error(`No se pudo descargar el resultado (HTTP ${r.status})`);
+  const blob = await r.blob();
+  log(`descarga del resultado: ${Math.round(blob.size / 1024)} KB en ${((performance.now() - tDl) / 1000).toFixed(1)} s (${blob.type || "?"})`);
+  return blob;
+}
+
+async function runFal(b, ctl) {
+  const key = settings.falKey;
+  if (!key) throw new Error("fal.ai: no hay clave configurada en Ajustes");
+  const auth = { Authorization: `Key ${key}` };
+  ctl.phase("Enviando a fal.ai…");
+  const body = {
+    human_image_url: app.photoDataUrl, garment_image_url: GARMENT.dataUrl, garment_type: GARMENT.type,
+    num_inference_steps: Math.max(30, settings.steps), guidance_scale: 2.5, seed: 42, output_format: "png",
+  };
+  const r = await fetch(`https://queue.fal.run/${b.model}`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal });
+  if (!r.ok) throw new Error(`fal.ai respondió HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const { status_url, response_url } = await r.json();
+  const deadline = Date.now() + settings.timeoutSec * 1000;
+  for (;;) {
+    await sleep(1500, ctl.signal);
+    const s = await (await fetch(status_url, { headers: auth, signal: ctl.signal })).json();
+    if (s.status === "COMPLETED") break;
+    if (s.status === "IN_QUEUE") ctl.phase(`En cola en fal.ai: posición ${s.queue_position ?? "?"}`);
+    else ctl.phase("Generando en fal.ai…");
+    if (Date.now() > deadline) throw new Error(`fal.ai: tiempo agotado (${settings.timeoutSec} s)`);
+  }
+  const out = await (await fetch(response_url, { headers: auth, signal: ctl.signal })).json();
+  const url = out?.image?.url;
+  if (!url) throw new Error("fal.ai no devolvió imagen: " + JSON.stringify(out).slice(0, 200));
+  ctl.phase("Descargando resultado…");
+  const img = await fetch(url, { signal: ctl.signal });
+  if (!img.ok) throw new Error(`No se pudo descargar el resultado de fal.ai (HTTP ${img.status})`);
+  return await img.blob();
+}
+
+function friendlyError(e) {
+  const m = String(e?.message || e || "");
+  if (/ZeroGPU (quota|runs limit)/i.test(m)) return ["Cuota ZeroGPU agotada para esta IP en este modelo. " + (m.match(/Try again in [\d:]+/)?.[0] || ""), "Opciones: cambiar de red (hotspot del móvil = IP nueva), usar la clave de fal.ai en Ajustes, o un X-IP-Token de tu cuenta HF."];
+  if (/tiempo agotado/i.test(m)) return [m, "El Space puede estar saturado. Reintenta o cambia el orden de modelos en Ajustes."];
+  if (/Failed to fetch|NetworkError|Could not connect|ECONN|fetch/i.test(m)) return ["No hay conexión con el modelo (" + m + ")", "Revisa la red/wifi. Si el Space está caído, prueba otro modelo en Ajustes."];
+  return [m, ""];
+}
+
+async function generate() {
+  if (!app.photoBlob || app.state === "generating") return;
+  clearError();
+  const available = settings.order.map((id) => BACKENDS[id]).filter(Boolean).filter((b) => b.kind !== "fal" || settings.falKey);
+  if (!available.length) { showError("No hay ningún modelo configurado.", "Revisa el orden de modelos en Ajustes."); return; }
+  const ac = new AbortController(); app.abort = ac;
+  const cancelFns = [];
+  let lastPhase = "";
+  const ctl = {
+    signal: ac.signal, detail: "", onCancel: (f) => cancelFns.push(f),
+    phase: (t) => { setStatus("busy", t, ctl.detail); els.afterBusyText.textContent = t; if (t !== lastPhase) { lastPhase = t; log(t); } },
+  };
+  ac.signal.addEventListener("abort", () => cancelFns.forEach((f) => f()), { once: true });
+  setState("generating"); startTimer();
+  for (let i = 0; i < available.length; i++) {
+    const b = available[i];
+    const tStart = performance.now();
+    let blob;
+    try {
+      ctl.detail = `modelo ${i + 1}/${available.length}: ${b.label}`;
+      blob = await (b.kind === "fal" ? runFal(b, ctl) : runGradio(b, ctl));
+    } catch (e) {
+      if (ac.signal.aborted || e?.name === "AbortError") { log("generación cancelada"); return; }
+      const [msg, hint] = friendlyError(e);
+      log(`${b.label} falló: ${e?.message || e}`);
+      clients.forEach((v, k) => { if (k.startsWith(b.id + "|")) clients.delete(k); });
+      const next = available[i + 1];
+      if (next) { setStatus("warn", `${b.label} falló · probando ${next.label}…`, msg); lastPhase = ""; continue; }
+      stopTimer(); setState("error-gen"); setStatus("err", "No se pudo generar");
+      showError(msg, hint || "Pulsa Generar para reintentar, o Repetir foto.");
+      app.abort = null; return;
+    }
+    if (ac.signal.aborted) return;
+    // Success: from here on, no UI failure may trigger the fallback
+    stopTimer(); app.abort = null;
+    app.resultBlob = blob;
+    if (app.resultUrl) URL.revokeObjectURL(app.resultUrl);
+    app.resultUrl = URL.createObjectURL(blob);
+    els.after.src = app.resultUrl;
+    const secs = ((performance.now() - tStart) / 1000).toFixed(1);
+    log(`${b.label}: resultado recibido en ${secs} s (${Math.round(blob.size / 1024)} KB)`);
+    els.afterCaption.textContent = `resultado de ${b.label}`;
+    setState("done"); setStatus("ok", `Listo · ${b.label}`, `${secs} s`);
+    return;
+  }
+}
+
+function cancelGeneration(reason = "Cancelado") {
+  if (app.abort) { app.abort.abort(); app.abort = null; }
+  stopTimer();
+  if (app.photoBlob) { setState("captured"); setStatus("warn", reason, "La foto sigue disponible: Generar o Repetir foto"); }
+}
+
+function download() {
+  if (!app.resultBlob) return;
+  const a = document.createElement("a");
+  const ext = (app.resultBlob.type || "").includes("jpeg") ? "jpg" : "png";
+  a.href = app.resultUrl; a.download = `probador-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.${ext}`;
+  document.body.appendChild(a); a.click(); a.remove();
+  log(`descarga: ${a.download}`);
+}
+
+// ================================================================
+// Backend status (pills) and pre-connection
+// ================================================================
+function pill(id, text, kind = "") {
+  let el = document.getElementById("pill-" + id);
+  if (!el) { el = document.createElement("span"); el.id = "pill-" + id; el.className = "pill"; els.pills.appendChild(el); }
+  el.className = "pill " + kind; el.textContent = text;
+}
+async function checkBackends() {
+  pill("net", navigator.onLine ? "Red: en línea" : "Red: SIN CONEXIÓN", navigator.onLine ? "ok" : "err");
+  for (const id of settings.order) {
+    const b = BACKENDS[id]; if (!b) continue;
+    if (b.kind === "fal") { pill(id, settings.falKey ? "fal.ai: clave puesta" : "fal.ai: sin clave", settings.falKey ? "ok" : ""); continue; }
+    pill(id, `${b.label}: comprobando…`);
+    try {
+      const r = await withTimeout(fetch(`https://huggingface.co/api/spaces/${b.space}`), 15000, "estado del Space");
+      const j = await r.json();
+      const stage = j?.runtime?.stage || "?";
+      const hw = j?.runtime?.hardware?.current || "";
+      pill(id, `${b.label}: ${stage === "RUNNING" ? "en línea" : stage}${hw ? " · " + hw : ""}`, stage === "RUNNING" ? "ok" : "err");
+      log(`${b.label}: estado ${stage} ${hw}`);
+    } catch (e) { pill(id, `${b.label}: sin respuesta`, "err"); log(`${b.label}: no se pudo consultar el estado (${e.message})`); }
+  }
+  // Pre-connect to the first Gradio backend to save seconds on the first generation
+  const first = settings.order.map((id) => BACKENDS[id]).find((b) => b?.kind === "gradio");
+  if (first) getClient(first).then(() => pill(first.id, `${first.label}: listo`, "ok")).catch((e) => { pill(first.id, `${first.label}: no conecta`, "err"); log(`${first.label}: preconexión falló (${e.message})`); });
+}
+window.addEventListener("online", () => pill("net", "Red: en línea", "ok"));
+window.addEventListener("offline", () => { pill("net", "Red: SIN CONEXIÓN", "err"); setStatus("err", "Sin conexión a internet"); });
+
+// ================================================================
+// Events
+// ================================================================
+els.btnCapture.addEventListener("click", capture);
+els.btnGenerate.addEventListener("click", generate);
+els.btnRetake.addEventListener("click", retake);
+els.btnCancel.addEventListener("click", () => cancelGeneration());
+els.btnDownload.addEventListener("click", download);
+els.btnCamera.addEventListener("click", startCamera);
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, select, textarea")) return;
+  if (e.code === "Space") { e.preventDefault(); if (app.state === "camera-ready") capture(); }
+  else if (e.key === "Enter") { if (["captured", "done", "error-gen"].includes(app.state)) generate(); }
+  else if (e.key === "r" || e.key === "R") { if (app.photoBlob) retake(); }
+  else if (e.key === "d" || e.key === "D") { if (app.state === "done") download(); }
+  else if (e.key === "Escape") { if (app.state === "generating") cancelGeneration(); }
+});
+window.addEventListener("error", (e) => showError("Error inesperado: " + (e.message || e.error?.message || "?"), "Mira el registro en Ajustes."));
+window.addEventListener("unhandledrejection", (e) => showError("Error inesperado: " + (e.reason?.message || e.reason || "?"), "Mira el registro en Ajustes."));
+
+// ================================================================
+// Startup
+// ================================================================
+if (!window.__gradio?.Client) {
+  setStatus("err", "No se cargó el cliente de Gradio"); showError("El cliente incrustado no se inicializó.", "El archivo HTML puede estar corrupto; regénéralo con src/build.mjs.");
+} else {
+  log(`inicio · ${location.protocol} · secureContext=${window.isSecureContext} · ${navigator.userAgent.split(") ")[0]})`);
+  setState("boot");
+  checkBackends();
+  startCamera();
+}
+</script>
+</body>
+</html>

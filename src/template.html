@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Probador virtual · demo</title>
+<link rel="preconnect" href="https://huggingface.co">
+<link rel="preconnect" href="https://yisol-idm-vton.hf.space">
+<link rel="preconnect" href="https://franciszzj-leffa.hf.space">
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #151920; --panel-2: #1c222b; --line: #2a323d;
+    --fg: #f5f7fa; --muted: #a3adba; --accent: #4cc9f0; --accent-fg: #06202b;
+    --ok: #3ddc84; --warn: #ffb703; --err: #ff4d6d;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 20px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    display: flex; flex-direction: column; height: 100vh; /* everything fits on one screen: no scrolling on the projector */
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 18px 28px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: .2px; }
+  header h1 small { color: var(--muted); font-weight: 400; font-size: 18px; margin-left: 10px; }
+  .pills { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--line); font-size: 15px; color: var(--muted);
+  }
+  .pill::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .pill.ok::before { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  .pill.warn::before { background: var(--warn); }
+  .pill.err::before { background: var(--err); }
+  .pill.ok, .pill.warn, .pill.err { color: var(--fg); }
+
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px 28px 10px; }
+  .stage {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, .42fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr); /* the row may shrink below the images' natural size */
+    gap: 22px; align-items: stretch; flex: 1; min-height: 0;
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+    display: flex; flex-direction: column; overflow: hidden; min-height: 0;
+  }
+  .panel h2 {
+    margin: 0; padding: 12px 18px; font-size: 18px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .panel h2 span { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 15px; }
+  .frame {
+    position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  /* Camera preview: mirrored ONLY for the user; the capture is taken unmirrored */
+  video#cam { width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); display: block; }
+  /* Sized by JS (layoutGuide) so it matches EXACTLY the 3:4 region that gets captured */
+  .guide {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 0; height: 0;
+    border: 2px solid rgba(76, 201, 240, .85); border-radius: 8px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55); pointer-events: none;
+  }
+  .guide::after {
+    content: "Encuadre 3:4 · hombros y cabeza dentro del marco"; position: absolute; left: 50%; bottom: 10px;
+    transform: translateX(-50%); width: max-content; max-width: calc(100% - 12px); text-align: center; font-size: 14px; color: #cfe9f3;
+    background: rgba(0, 0, 0, .55); padding: 4px 10px; border-radius: 6px;
+  }
+  .countdown {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    font-size: 180px; font-weight: 800; color: #fff; text-shadow: 0 0 40px rgba(0, 0, 0, .8);
+    background: rgba(0, 0, 0, .25);
+  }
+  .countdown.on { display: flex; }
+  .frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .placeholder {
+    color: var(--muted); text-align: center; padding: 30px; font-size: 20px; max-width: 80%;
+  }
+  .spinner {
+    width: 84px; height: 84px; border-radius: 50%; border: 8px solid rgba(255, 255, 255, .12);
+    border-top-color: var(--accent); animation: spin 1s linear infinite; margin: 0 auto 22px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .garment { padding: 18px; gap: 14px; justify-content: center; align-items: center; background: #fff; }
+  .garment img { width: 100%; min-height: 0; flex: 1; object-fit: contain; border-radius: 10px; }
+  .arrow { text-align: center; color: var(--muted); font-size: 34px; padding: 6px 0 0; }
+
+  .statusbar {
+    display: flex; align-items: center; gap: 18px; padding: 16px 22px; border-radius: 16px;
+    background: var(--panel); border: 1px solid var(--line); font-size: 26px; font-weight: 600;
+    min-height: 74px;
+  }
+  .statusbar .dot { width: 18px; height: 18px; border-radius: 50%; background: var(--muted); flex: none; }
+  .statusbar.ok .dot { background: var(--ok); box-shadow: 0 0 14px var(--ok); }
+  .statusbar.busy .dot { background: var(--accent); box-shadow: 0 0 14px var(--accent); animation: pulse 1s ease-in-out infinite; }
+  .statusbar.warn .dot { background: var(--warn); }
+  .statusbar.err .dot { background: var(--err); box-shadow: 0 0 14px var(--err); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .statusbar .detail { color: var(--muted); font-weight: 400; font-size: 20px; margin-left: auto; text-align: right; }
+  .statusbar .timer { font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; color: var(--accent); }
+
+  .controls { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  button {
+    font: inherit; font-size: 24px; font-weight: 700; padding: 0 30px; min-height: 68px; border-radius: 14px;
+    border: 2px solid transparent; cursor: pointer; color: var(--fg); background: var(--panel-2);
+    border-color: var(--line); transition: transform .05s ease, filter .15s ease;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .4; cursor: not-allowed; filter: none; }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button.danger { border-color: var(--err); color: var(--err); }
+  button kbd {
+    font: 600 14px/1 ui-monospace, Menlo, monospace; opacity: .7; margin-left: 12px; padding: 3px 7px;
+    border: 1px solid currentColor; border-radius: 6px; vertical-align: middle;
+  }
+  .spacer { flex: 1; }
+  .errorbox {
+    display: none; border: 2px solid var(--err); background: rgba(255, 77, 109, .1); border-radius: 16px;
+    padding: 16px 22px; font-size: 21px; line-height: 1.4;
+  }
+  .errorbox.on { display: block; }
+  .errorbox strong { color: var(--err); }
+  .errorbox .hint { color: var(--muted); font-size: 18px; margin-top: 6px; }
+
+  footer { padding: 4px 28px 16px; }
+  details { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+  summary { cursor: pointer; padding: 12px 18px; font-size: 17px; color: var(--muted); user-select: none; }
+  .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px 22px; padding: 6px 18px 18px; }
+  .settings label { display: flex; flex-direction: column; gap: 6px; font-size: 15px; color: var(--muted); }
+  .settings input, .settings select {
+    font: inherit; font-size: 16px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .settings .note { grid-column: 1 / -1; font-size: 14px; color: var(--muted); line-height: 1.5; }
+  pre#log {
+    margin: 0; padding: 12px 18px; max-height: 120px; overflow: auto; font: 13px/1.45 ui-monospace, Menlo, monospace;
+    color: var(--muted); white-space: pre-wrap; border-top: 1px solid var(--line);
+  }
+  @media (max-width: 1100px) {
+    .stage { grid-template-columns: 1fr 1fr; }
+    .panel.garment { grid-column: 1 / -1; flex-direction: row; max-height: 160px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Probador virtual <small>modelo open source · IDM-VTON</small></h1>
+  <div class="pills" id="pills"></div>
+</header>
+
+<main>
+  <section class="stage">
+    <div class="panel">
+      <h2>Antes <span id="beforeCaption">cámara en vivo · espejo</span></h2>
+      <div class="frame">
+        <video id="cam" autoplay muted playsinline></video>
+        <div class="guide" id="guide"></div>
+        <div class="countdown" id="countdown"></div>
+        <img id="before" alt="Foto capturada" hidden>
+      </div>
+    </div>
+
+    <div class="panel garment">
+      <img id="garmentImg" alt="Prenda de la demo" src="__GARMENT_DATA_URL__">
+      <div class="arrow" style="color:#555">→</div>
+    </div>
+
+    <div class="panel">
+      <h2>Después <span id="afterCaption">resultado del modelo</span></h2>
+      <div class="frame" id="afterFrame">
+        <div class="placeholder" id="afterPlaceholder">Captura una foto y pulsa <b>Generar</b>. El resultado aparecerá aquí.</div>
+        <div class="placeholder" id="afterBusy" hidden><div class="spinner"></div><div id="afterBusyText">Generando…</div></div>
+        <img id="after" alt="Resultado" hidden>
+      </div>
+    </div>
+  </section>
+
+  <div class="statusbar" id="status">
+    <div class="dot"></div>
+    <div id="statusText">Iniciando…</div>
+    <div class="timer" id="timer"></div>
+    <div class="detail" id="statusDetail"></div>
+  </div>
+
+  <div class="errorbox" id="errorbox"><strong>Error.</strong> <span id="errorText"></span><div class="hint" id="errorHint"></div></div>
+
+  <div class="controls">
+    <button id="btnCapture" class="primary" disabled>Capturar foto <kbd>espacio</kbd></button>
+    <button id="btnGenerate" class="primary" hidden>Generar <kbd>⏎</kbd></button>
+    <button id="btnRetake" hidden>Repetir foto <kbd>R</kbd></button>
+    <button id="btnCancel" class="danger" hidden>Cancelar <kbd>esc</kbd></button>
+    <button id="btnDownload" hidden>Descargar resultado <kbd>D</kbd></button>
+    <span class="spacer"></span>
+    <button id="btnCamera" hidden>Reintentar cámara</button>
+  </div>
+</main>
+
+<footer>
+  <details id="settingsBox">
+    <summary>Ajustes y registro (token HF, respaldo, pasos, diagnóstico)</summary>
+    <div class="settings">
+      <label>Token de Hugging Face (opcional, recomendado: más cuota ZeroGPU y prioridad en cola)
+        <input id="setHfToken" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false">
+      </label>
+      <label>X-IP-Token de ZeroGPU (avanzado, opcional): cabecera copiada de DevTools con tu sesión de HF abierta en el Space
+        <input id="setIpToken" type="password" placeholder="eyJ…" autocomplete="off" spellcheck="false">
+      </label>
+      <label>Clave de fal.ai (opcional, respaldo de pago: Leffa en fal)
+        <input id="setFalKey" type="password" placeholder="key_id:key_secret" autocomplete="off" spellcheck="false">
+      </label>
+      <label>Orden de modelos (se prueba el siguiente si uno falla)
+        <select id="setOrder">
+          <option value="idm,fal,leffa">IDM-VTON → fal (si hay clave) → Leffa</option>
+          <option value="fal,idm,leffa">fal (si hay clave) → IDM-VTON → Leffa</option>
+          <option value="leffa,idm,fal">Leffa → IDM-VTON → fal (si hay clave)</option>
+          <option value="idm">Solo IDM-VTON</option>
+        </select>
+      </label>
+      <label>Pasos de difusión (menos = más rápido)
+        <select id="setSteps">
+          <option value="20">20 · ~18 s en GPU</option>
+          <option value="30" selected>30 · calidad estándar</option>
+        </select>
+      </label>
+      <label>Tiempo máximo por modelo (segundos) antes de pasar al siguiente
+        <input id="setTimeout" type="number" min="30" max="600" step="10" value="150">
+      </label>
+      <label>URL de un Gradio local con la app de IDM-VTON (opcional, sustituye al Space)
+        <input id="setCustomUrl" type="url" placeholder="http://127.0.0.1:7860" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="note">
+        Los valores se guardan solo en este navegador (localStorage). Sin token, la cuota ZeroGPU anónima es de unos 3 min de GPU al día por IP
+        (≈ 5-6 generaciones con IDM-VTON; Leffa exige 180 s libres por llamada, así que en anónimo casi nunca entra).
+        Un Gradio local debe lanzarse con <code>demo.launch(strict_cors=False)</code> para aceptar peticiones desde un archivo <code>file://</code>.
+      </div>
+    </div>
+    <pre id="log"></pre>
+  </details>
+</footer>
+
+<!-- @gradio/client 2.6.0 (ISC license) inlined: no CDN, no network needed to load the page. -->
+<script type="module">
+/*__GRADIO_CLIENT__*/
+</script>
+
+<script type="module">
+// ================================================================
+// Demo configuration
+// ================================================================
+const GARMENT = {
+  dataUrl: document.getElementById("garmentImg").getAttribute("src"),
+  // IDM-VTON uses this description in its prompt ("model is wearing …"). Change it if you swap the garment.
+  description: "navy and light blue color-block short sleeve polo shirt",
+  type: "upper_body", // upper_body | lower_body | dresses
+};
+
+const BACKENDS = {
+  idm: {
+    id: "idm", label: "IDM-VTON", kind: "gradio", space: "yisol/IDM-VTON",
+    endpoint: "/tryon",
+    // Signature verified against the Space's /info (Gradio 4.24):
+    // dict(ImageEditor), garm_img, garment_des, is_checked(auto-mask), is_checked_crop, denoise_steps, seed
+    args: ({ person, garment, steps }) => [
+      { background: person, layers: [], composite: null }, garment, GARMENT.description, true, false, steps, 42,
+    ],
+    pick: (data) => data[0],
+    minSteps: 10,
+  },
+  leffa: {
+    id: "leffa", label: "Leffa", kind: "gradio", space: "franciszzj/Leffa",
+    endpoint: "/leffa_predict_vt",
+    // Signature verified against /gradio_api/info (Gradio 5.38): src, ref, ref_acceleration, step(>=30), scale, seed, vt_model_type, vt_garment_type, vt_repaint
+    args: ({ person, garment, steps }) => [person, garment, false, Math.max(30, steps), 2.5, 42, "viton_hd", GARMENT.type, false],
+    pick: (data) => data[0],
+    minSteps: 30,
+  },
+  fal: {
+    id: "fal", label: "fal.ai (Leffa)", kind: "fal", model: "fal-ai/leffa/virtual-tryon",
+  },
+};
+
+const OUT_W = 768, OUT_H = 1024; // native model resolution (3:4)
+
+// ================================================================
+// Persistent settings
+// ================================================================
+const LS = (k, d = "") => localStorage.getItem("vton." + k) ?? d;
+const settings = {
+  get hfToken() { return LS("hfToken").trim(); },
+  get falKey() { return LS("falKey").trim(); },
+  get ipToken() { return LS("ipToken").trim(); },
+  get order() { return LS("order", "idm,fal,leffa").split(",").filter(Boolean); },
+  get steps() { return Number(LS("steps", "30")) || 30; },
+  get timeoutSec() { return Math.min(600, Math.max(30, Number(LS("timeout", "150")) || 150)); },
+  get customUrl() { return LS("customUrl").trim(); },
+};
+const bind = (id, key) => {
+  const el = document.getElementById(id);
+  el.value = LS(key, el.value);
+  el.addEventListener("change", () => { localStorage.setItem("vton." + key, el.value); log(`ajuste ${key} actualizado`); });
+};
+bind("setHfToken", "hfToken"); bind("setIpToken", "ipToken"); bind("setFalKey", "falKey"); bind("setOrder", "order");
+bind("setSteps", "steps"); bind("setTimeout", "timeout"); bind("setCustomUrl", "customUrl");
+
+// ================================================================
+// UI helpers
+// ================================================================
+const $ = (id) => document.getElementById(id);
+const els = {
+  cam: $("cam"), guide: $("guide"), countdown: $("countdown"), before: $("before"), beforeCaption: $("beforeCaption"),
+  after: $("after"), afterCaption: $("afterCaption"), afterPlaceholder: $("afterPlaceholder"), afterBusy: $("afterBusy"), afterBusyText: $("afterBusyText"),
+  status: $("status"), statusText: $("statusText"), statusDetail: $("statusDetail"), timer: $("timer"),
+  errorbox: $("errorbox"), errorText: $("errorText"), errorHint: $("errorHint"), pills: $("pills"), log: $("log"),
+  btnCapture: $("btnCapture"), btnGenerate: $("btnGenerate"), btnRetake: $("btnRetake"), btnCancel: $("btnCancel"),
+  btnDownload: $("btnDownload"), btnCamera: $("btnCamera"),
+};
+
+const logLines = [];
+function log(msg) {
+  const line = `${new Date().toLocaleTimeString("es-CO", { hour12: false })}  ${msg}`;
+  logLines.push(line); if (logLines.length > 300) logLines.shift();
+  els.log.textContent = logLines.join("\n"); els.log.scrollTop = els.log.scrollHeight;
+  console.log("[probador]", msg);
+}
+
+const app = { state: "boot", stream: null, photoBlob: null, photoDataUrl: null, resultBlob: null, resultUrl: null, abort: null, timer: null, t0: 0 };
+window.__vton = app; // for diagnostics
+
+function setStatus(kind, text, detail = "") {
+  els.status.className = "statusbar " + kind;
+  els.statusText.textContent = text;
+  els.statusDetail.textContent = detail;
+}
+function showError(text, hint = "") {
+  els.errorText.textContent = text; els.errorHint.textContent = hint;
+  els.errorbox.classList.add("on");
+  log("ERROR: " + text + (hint ? " | " + hint : ""));
+}
+function clearError() { els.errorbox.classList.remove("on"); }
+
+function show(el, on) { el.hidden = !on; }
+function setState(state) {
+  app.state = state;
+  const s = (name) => state === name;
+  show(els.btnCapture, s("camera-ready") || s("countdown")); els.btnCapture.disabled = !s("camera-ready");
+  show(els.btnGenerate, s("captured") || s("done") || s("error-gen"));
+  show(els.btnRetake, s("captured") || s("generating") || s("done") || s("error-gen"));
+  show(els.btnCancel, s("generating"));
+  show(els.btnDownload, s("done"));
+  show(els.btnCamera, s("camera-error"));
+  // "Before" panel: live video or still photo
+  const live = s("camera-request") || s("camera-ready") || s("countdown") || s("camera-error");
+  els.cam.style.display = live ? "block" : "none";
+  els.guide.style.display = live && !s("camera-error") ? "block" : "none";
+  show(els.before, !live && !!app.photoDataUrl);
+  els.beforeCaption.textContent = live ? "cámara en vivo · espejo" : "foto enviada al modelo · sin espejo";
+  // "After" panel
+  show(els.afterPlaceholder, !s("generating") && !s("done"));
+  show(els.afterBusy, s("generating"));
+  show(els.after, s("done"));
+}
+
+function startTimer() {
+  app.t0 = performance.now(); stopTimer();
+  app.timer = setInterval(() => { els.timer.textContent = `${Math.floor((performance.now() - app.t0) / 1000)} s`; }, 250);
+  els.timer.textContent = "0 s";
+}
+function stopTimer() { if (app.timer) clearInterval(app.timer); app.timer = null; }
+
+const sleep = (ms, signal) => new Promise((res, rej) => {
+  const t = setTimeout(res, ms);
+  signal?.addEventListener("abort", () => { clearTimeout(t); rej(new DOMException("Cancelado", "AbortError")); }, { once: true });
+});
+function withTimeout(promise, ms, what) {
+  return new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error(`${what}: tiempo agotado (${Math.round(ms / 1000)} s)`)), ms);
+    promise.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+  });
+}
+function dataUrlToBlob(dataUrl) {
+  const [head, b64] = dataUrl.split(",");
+  const mime = /data:([^;]+)/.exec(head)?.[1] || "application/octet-stream";
+  const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+const garmentBlob = dataUrlToBlob(GARMENT.dataUrl);
+
+// ================================================================
+// Camera
+// ================================================================
+function cameraErrorInfo(e) {
+  const n = e?.name || "";
+  if (n === "NotAllowedError" || n === "SecurityError")
+    return ["Permiso de cámara denegado.", "En Chrome: clic en el icono a la izquierda de la URL → Cámara → Permitir, y luego «Reintentar cámara». Si abriste el archivo por doble clic, el permiso se pide para file://."];
+  if (n === "NotFoundError" || n === "OverconstrainedError")
+    return ["No se encontró ninguna cámara.", "Comprueba que la tapa/interruptor de la cámara esté abierto y que no falte el dispositivo en Ajustes del sistema → Privacidad → Cámara."];
+  if (n === "NotReadableError" || n === "AbortError")
+    return ["La cámara está ocupada o no responde.", "Cierra Zoom, FaceTime, Teams, Photo Booth u otra pestaña que la esté usando y pulsa «Reintentar cámara»."];
+  return [`No se pudo abrir la cámara (${n || "error desconocido"}).`, e?.message || ""];
+}
+
+async function startCamera() {
+  clearError(); setState("camera-request"); setStatus("busy", "Pidiendo acceso a la cámara…");
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setState("camera-error"); setStatus("err", "Este navegador no expone la cámara");
+    showError("navigator.mediaDevices no está disponible.", "Abre este archivo con Google Chrome. file:// cuenta como contexto seguro en Chrome; http:// remoto no.");
+    return;
+  }
+  try {
+    if (app.stream) app.stream.getTracks().forEach((t) => t.stop());
+    app.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } });
+    els.cam.srcObject = app.stream;
+    await els.cam.play().catch(() => {});
+    const track = app.stream.getVideoTracks()[0];
+    const st = track?.getSettings?.() || {};
+    log(`cámara lista: ${track?.label || "?"} ${st.width || "?"}x${st.height || "?"}`);
+    track?.addEventListener("ended", () => { log("la pista de vídeo terminó"); if (app.state === "camera-ready") { setState("camera-error"); setStatus("err", "La cámara se desconectó"); } });
+    setState("camera-ready"); setStatus("ok", "Cámara lista", "Colócate dentro del marco y pulsa Capturar");
+    layoutGuide(); requestAnimationFrame(layoutGuide);
+  } catch (e) {
+    const [msg, hint] = cameraErrorInfo(e);
+    setState("camera-error"); setStatus("err", "Sin cámara"); showError(msg, hint);
+  }
+}
+
+// Centered 3:4 region that gets captured, in video coordinates
+function cropRegion(vw, vh) {
+  let cw = Math.round(vh * 3 / 4), ch = vh;
+  if (cw > vw) { cw = vw; ch = Math.round(vw * 4 / 3); }
+  return { cw, ch, sx: Math.round((vw - cw) / 2), sy: Math.round((vh - ch) / 2) };
+}
+
+// Draws the guide frame over the video area that is actually cropped (object-fit: contain → video is centered)
+function layoutGuide() {
+  const vw = els.cam.videoWidth, vh = els.cam.videoHeight;
+  if (!vw || !vh) return;
+  const r = els.cam.getBoundingClientRect();
+  const scale = Math.min(r.width / vw, r.height / vh);
+  const { cw, ch } = cropRegion(vw, vh);
+  els.guide.style.width = `${Math.round(cw * scale)}px`;
+  els.guide.style.height = `${Math.round(ch * scale)}px`;
+}
+window.addEventListener("resize", layoutGuide);
+els.cam.addEventListener("loadedmetadata", layoutGuide);
+els.cam.addEventListener("resize", layoutGuide);
+
+// UNMIRRORED capture: the frame is drawn as the camera sees it, cropped to the central 3:4.
+async function capture() {
+  if (app.state !== "camera-ready") return;
+  clearError(); setState("countdown"); setStatus("busy", "Capturando…", "3, 2, 1…");
+  for (let n = 3; n >= 1; n--) {
+    els.countdown.textContent = String(n); els.countdown.classList.add("on");
+    await sleep(700);
+  }
+  els.countdown.classList.remove("on");
+  const vw = els.cam.videoWidth, vh = els.cam.videoHeight;
+  if (!vw || !vh) { setState("camera-ready"); setStatus("warn", "La cámara aún no entrega imagen", "Espera un segundo y vuelve a capturar"); return; }
+  const { cw, ch, sx, sy } = cropRegion(vw, vh);
+  const canvas = document.createElement("canvas"); canvas.width = OUT_W; canvas.height = OUT_H;
+  const ctx = canvas.getContext("2d"); ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(els.cam, sx, sy, cw, ch, 0, 0, OUT_W, OUT_H);
+  app.photoBlob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.92));
+  app.photoDataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  els.before.src = app.photoDataUrl;
+  app.resultBlob = null; if (app.resultUrl) { URL.revokeObjectURL(app.resultUrl); app.resultUrl = null; }
+  log(`foto capturada ${OUT_W}x${OUT_H} (${Math.round(app.photoBlob.size / 1024)} KB) desde ${vw}x${vh}, recorte ${cw}x${ch}`);
+  setState("captured"); setStatus("ok", "Foto lista", "Pulsa Generar, o Repetir foto si no te convence");
+}
+
+function retake() {
+  if (app.state === "generating") cancelGeneration("Repetir foto");
+  app.photoBlob = null; app.photoDataUrl = null; app.resultBlob = null;
+  if (app.resultUrl) { URL.revokeObjectURL(app.resultUrl); app.resultUrl = null; }
+  els.before.removeAttribute("src"); els.after.removeAttribute("src"); els.timer.textContent = "";
+  clearError();
+  if (app.stream && app.stream.getVideoTracks()[0]?.readyState === "live") { setState("camera-ready"); setStatus("ok", "Cámara lista", "Colócate dentro del marco y pulsa Capturar"); requestAnimationFrame(layoutGuide); }
+  else startCamera();
+}
+
+// ================================================================
+// Generation (fallback chain)
+// ================================================================
+const clients = new Map(); // backend id -> Client
+
+async function getClient(b) {
+  const key = b.id + "|" + settings.hfToken + "|" + settings.ipToken + "|" + settings.customUrl;
+  if (clients.has(key)) return clients.get(key);
+  const { Client } = window.__gradio;
+  const target = (b.id === "idm" && settings.customUrl) ? settings.customUrl : b.space;
+  const opts = { events: ["status", "data"] };
+  if (settings.hfToken) opts.token = settings.hfToken; // client 2.6 sends it as Authorization: Bearer
+  if (settings.ipToken) opts.headers = { "x-ip-token": settings.ipToken }; // header ZeroGPU uses to attribute quota
+  const p = Client.connect(target, opts).then((c) => { log(`${b.label}: conectado (gradio ${c.config?.version || "?"}) a ${target}`); return c; });
+  clients.set(key, p);
+  p.catch(() => clients.delete(key));
+  return p;
+}
+
+async function runGradio(b, ctl) {
+  ctl.phase(`Conectando con ${b.label}…`);
+  const client = await withTimeout(getClient(b), 40000, `Conexión con ${b.label}`);
+  const { handle_file } = window.__gradio;
+  const steps = Math.max(b.minSteps || 1, settings.steps);
+  const args = b.args({ person: handle_file(app.photoBlob), garment: handle_file(garmentBlob), steps });
+  ctl.phase(`Enviando imágenes a ${b.label}…`);
+  const job = client.submit(b.endpoint, args);
+  ctl.onCancel(() => { try { job.cancel(); } catch {} });
+  let data = null;
+  const consume = (async () => {
+    for await (const msg of job) {
+      if (ctl.signal.aborted) throw new DOMException("Cancelado", "AbortError");
+      if (msg.type === "status") {
+        if (msg.stage === "error") throw new Error(msg.message || msg.title || `Error del modelo ${b.label}`);
+        if (msg.stage === "pending") {
+          const pos = msg.position, eta = msg.eta;
+          ctl.phase(pos > 0 ? `En cola en ${b.label}: posición ${pos}${eta ? ` · ~${Math.round(eta)} s` : ""}` : `Generando con ${b.label}…`);
+        }
+        if (msg.stage === "complete") { if (data) break; }
+      } else if (msg.type === "data") { data = msg.data; if (data) break; }
+    }
+  })();
+  await Promise.race([
+    consume,
+    sleep(settings.timeoutSec * 1000, ctl.signal).then(() => { try { job.cancel(); } catch {} throw new Error(`${b.label}: tiempo agotado (${settings.timeoutSec} s)`); }),
+  ]);
+  const file = b.pick(data || []);
+  const url = file?.url || (file?.path ? `${client.config.root}${client.api_prefix || ""}/file=${file.path}` : null);
+  if (!url) throw new Error(`${b.label} no devolvió imagen`);
+  ctl.phase("Descargando resultado…");
+  const tDl = performance.now();
+  const headers = settings.hfToken ? { Authorization: `Bearer ${settings.hfToken}` } : {};
+  // The Space's /file= endpoint serves ~25 KB/s (measured): a ~600 KB PNG takes 20-50 s. Parallel range requests
+  // were slower in Chrome (everything shares one HTTP/2 connection), so this is a plain download.
+  const r = await fetch(url, { headers, signal: ctl.signal });
+  if (!r.ok) throw new Error(`No se pudo descargar el resultado (HTTP ${r.status})`);
+  const blob = await r.blob();
+  log(`descarga del resultado: ${Math.round(blob.size / 1024)} KB en ${((performance.now() - tDl) / 1000).toFixed(1)} s (${blob.type || "?"})`);
+  return blob;
+}
+
+async function runFal(b, ctl) {
+  const key = settings.falKey;
+  if (!key) throw new Error("fal.ai: no hay clave configurada en Ajustes");
+  const auth = { Authorization: `Key ${key}` };
+  ctl.phase("Enviando a fal.ai…");
+  const body = {
+    human_image_url: app.photoDataUrl, garment_image_url: GARMENT.dataUrl, garment_type: GARMENT.type,
+    num_inference_steps: Math.max(30, settings.steps), guidance_scale: 2.5, seed: 42, output_format: "png",
+  };
+  const r = await fetch(`https://queue.fal.run/${b.model}`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal });
+  if (!r.ok) throw new Error(`fal.ai respondió HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const { status_url, response_url } = await r.json();
+  const deadline = Date.now() + settings.timeoutSec * 1000;
+  for (;;) {
+    await sleep(1500, ctl.signal);
+    const s = await (await fetch(status_url, { headers: auth, signal: ctl.signal })).json();
+    if (s.status === "COMPLETED") break;
+    if (s.status === "IN_QUEUE") ctl.phase(`En cola en fal.ai: posición ${s.queue_position ?? "?"}`);
+    else ctl.phase("Generando en fal.ai…");
+    if (Date.now() > deadline) throw new Error(`fal.ai: tiempo agotado (${settings.timeoutSec} s)`);
+  }
+  const out = await (await fetch(response_url, { headers: auth, signal: ctl.signal })).json();
+  const url = out?.image?.url;
+  if (!url) throw new Error("fal.ai no devolvió imagen: " + JSON.stringify(out).slice(0, 200));
+  ctl.phase("Descargando resultado…");
+  const img = await fetch(url, { signal: ctl.signal });
+  if (!img.ok) throw new Error(`No se pudo descargar el resultado de fal.ai (HTTP ${img.status})`);
+  return await img.blob();
+}
+
+function friendlyError(e) {
+  const m = String(e?.message || e || "");
+  if (/ZeroGPU (quota|runs limit)/i.test(m)) return ["Cuota ZeroGPU agotada para esta IP en este modelo. " + (m.match(/Try again in [\d:]+/)?.[0] || ""), "Opciones: cambiar de red (hotspot del móvil = IP nueva), usar la clave de fal.ai en Ajustes, o un X-IP-Token de tu cuenta HF."];
+  if (/tiempo agotado/i.test(m)) return [m, "El Space puede estar saturado. Reintenta o cambia el orden de modelos en Ajustes."];
+  if (/Failed to fetch|NetworkError|Could not connect|ECONN|fetch/i.test(m)) return ["No hay conexión con el modelo (" + m + ")", "Revisa la red/wifi. Si el Space está caído, prueba otro modelo en Ajustes."];
+  return [m, ""];
+}
+
+async function generate() {
+  if (!app.photoBlob || app.state === "generating") return;
+  clearError();
+  const available = settings.order.map((id) => BACKENDS[id]).filter(Boolean).filter((b) => b.kind !== "fal" || settings.falKey);
+  if (!available.length) { showError("No hay ningún modelo configurado.", "Revisa el orden de modelos en Ajustes."); return; }
+  const ac = new AbortController(); app.abort = ac;
+  const cancelFns = [];
+  let lastPhase = "";
+  const ctl = {
+    signal: ac.signal, detail: "", onCancel: (f) => cancelFns.push(f),
+    phase: (t) => { setStatus("busy", t, ctl.detail); els.afterBusyText.textContent = t; if (t !== lastPhase) { lastPhase = t; log(t); } },
+  };
+  ac.signal.addEventListener("abort", () => cancelFns.forEach((f) => f()), { once: true });
+  setState("generating"); startTimer();
+  for (let i = 0; i < available.length; i++) {
+    const b = available[i];
+    const tStart = performance.now();
+    let blob;
+    try {
+      ctl.detail = `modelo ${i + 1}/${available.length}: ${b.label}`;
+      blob = await (b.kind === "fal" ? runFal(b, ctl) : runGradio(b, ctl));
+    } catch (e) {
+      if (ac.signal.aborted || e?.name === "AbortError") { log("generación cancelada"); return; }
+      const [msg, hint] = friendlyError(e);
+      log(`${b.label} falló: ${e?.message || e}`);
+      clients.forEach((v, k) => { if (k.startsWith(b.id + "|")) clients.delete(k); });
+      const next = available[i + 1];
+      if (next) { setStatus("warn", `${b.label} falló · probando ${next.label}…`, msg); lastPhase = ""; continue; }
+      stopTimer(); setState("error-gen"); setStatus("err", "No se pudo generar");
+      showError(msg, hint || "Pulsa Generar para reintentar, o Repetir foto.");
+      app.abort = null; return;
+    }
+    if (ac.signal.aborted) return;
+    // Success: from here on, no UI failure may trigger the fallback
+    stopTimer(); app.abort = null;
+    app.resultBlob = blob;
+    if (app.resultUrl) URL.revokeObjectURL(app.resultUrl);
+    app.resultUrl = URL.createObjectURL(blob);
+    els.after.src = app.resultUrl;
+    const secs = ((performance.now() - tStart) / 1000).toFixed(1);
+    log(`${b.label}: resultado recibido en ${secs} s (${Math.round(blob.size / 1024)} KB)`);
+    els.afterCaption.textContent = `resultado de ${b.label}`;
+    setState("done"); setStatus("ok", `Listo · ${b.label}`, `${secs} s`);
+    return;
+  }
+}
+
+function cancelGeneration(reason = "Cancelado") {
+  if (app.abort) { app.abort.abort(); app.abort = null; }
+  stopTimer();
+  if (app.photoBlob) { setState("captured"); setStatus("warn", reason, "La foto sigue disponible: Generar o Repetir foto"); }
+}
+
+function download() {
+  if (!app.resultBlob) return;
+  const a = document.createElement("a");
+  const ext = (app.resultBlob.type || "").includes("jpeg") ? "jpg" : "png";
+  a.href = app.resultUrl; a.download = `probador-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}.${ext}`;
+  document.body.appendChild(a); a.click(); a.remove();
+  log(`descarga: ${a.download}`);
+}
+
+// ================================================================
+// Backend status (pills) and pre-connection
+// ================================================================
+function pill(id, text, kind = "") {
+  let el = document.getElementById("pill-" + id);
+  if (!el) { el = document.createElement("span"); el.id = "pill-" + id; el.className = "pill"; els.pills.appendChild(el); }
+  el.className = "pill " + kind; el.textContent = text;
+}
+async function checkBackends() {
+  pill("net", navigator.onLine ? "Red: en línea" : "Red: SIN CONEXIÓN", navigator.onLine ? "ok" : "err");
+  for (const id of settings.order) {
+    const b = BACKENDS[id]; if (!b) continue;
+    if (b.kind === "fal") { pill(id, settings.falKey ? "fal.ai: clave puesta" : "fal.ai: sin clave", settings.falKey ? "ok" : ""); continue; }
+    pill(id, `${b.label}: comprobando…`);
+    try {
+      const r = await withTimeout(fetch(`https://huggingface.co/api/spaces/${b.space}`), 15000, "estado del Space");
+      const j = await r.json();
+      const stage = j?.runtime?.stage || "?";
+      const hw = j?.runtime?.hardware?.current || "";
+      pill(id, `${b.label}: ${stage === "RUNNING" ? "en línea" : stage}${hw ? " · " + hw : ""}`, stage === "RUNNING" ? "ok" : "err");
+      log(`${b.label}: estado ${stage} ${hw}`);
+    } catch (e) { pill(id, `${b.label}: sin respuesta`, "err"); log(`${b.label}: no se pudo consultar el estado (${e.message})`); }
+  }
+  // Pre-connect to the first Gradio backend to save seconds on the first generation
+  const first = settings.order.map((id) => BACKENDS[id]).find((b) => b?.kind === "gradio");
+  if (first) getClient(first).then(() => pill(first.id, `${first.label}: listo`, "ok")).catch((e) => { pill(first.id, `${first.label}: no conecta`, "err"); log(`${first.label}: preconexión falló (${e.message})`); });
+}
+window.addEventListener("online", () => pill("net", "Red: en línea", "ok"));
+window.addEventListener("offline", () => { pill("net", "Red: SIN CONEXIÓN", "err"); setStatus("err", "Sin conexión a internet"); });
+
+// ================================================================
+// Events
+// ================================================================
+els.btnCapture.addEventListener("click", capture);
+els.btnGenerate.addEventListener("click", generate);
+els.btnRetake.addEventListener("click", retake);
+els.btnCancel.addEventListener("click", () => cancelGeneration());
+els.btnDownload.addEventListener("click", download);
+els.btnCamera.addEventListener("click", startCamera);
+document.addEventListener("keydown", (e) => {
+  if (e.target.matches("input, select, textarea")) return;
+  if (e.code === "Space") { e.preventDefault(); if (app.state === "camera-ready") capture(); }
+  else if (e.key === "Enter") { if (["captured", "done", "error-gen"].includes(app.state)) generate(); }
+  else if (e.key === "r" || e.key === "R") { if (app.photoBlob) retake(); }
+  else if (e.key === "d" || e.key === "D") { if (app.state === "done") download(); }
+  else if (e.key === "Escape") { if (app.state === "generating") cancelGeneration(); }
+});
+window.addEventListener("error", (e) => showError("Error inesperado: " + (e.message || e.error?.message || "?"), "Mira el registro en Ajustes."));
+window.addEventListener("unhandledrejection", (e) => showError("Error inesperado: " + (e.reason?.message || e.reason || "?"), "Mira el registro en Ajustes."));
+
+// ================================================================
+// Startup
+// ================================================================
+if (!window.__gradio?.Client) {
+  setStatus("err", "No se cargó el cliente de Gradio"); showError("El cliente incrustado no se inicializó.", "El archivo HTML puede estar corrupto; regénéralo con src/build.mjs.");
+} else {
+  log(`inicio · ${location.protocol} · secureContext=${window.isSecureContext} · ${navigator.userAgent.split(") ")[0]})`);
+  setState("boot");
+  checkBackends();
+  startCamera();
+}
+</script>
+</body>
+</html>
