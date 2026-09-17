@@ -121,6 +121,19 @@
     border: 1px solid currentColor; border-radius: 6px; vertical-align: middle;
   }
   .spacer { flex: 1; }
+  .garmentbar {
+    display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; padding: 12px 18px; border-radius: 16px;
+    background: var(--panel); border: 1px solid var(--line);
+  }
+  .garmentbar label { display: flex; flex-direction: column; gap: 6px; font-size: 15px; color: var(--muted); }
+  .garmentbar .grow { flex: 1; min-width: 320px; }
+  .garmentbar .desc { width: 300px; }
+  .garmentbar input {
+    font: inherit; font-size: 18px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; width: 100%;
+  }
+  button.small { min-height: 50px; font-size: 19px; padding: 0 20px; }
+  .garment-caption { font-size: 14px; color: #555; text-align: center; padding: 0 6px; }
   .errorbox {
     display: none; border: 2px solid var(--err); background: rgba(255, 77, 109, .1); border-radius: 16px;
     padding: 16px 22px; font-size: 21px; line-height: 1.4;
@@ -156,6 +169,17 @@
 </header>
 
 <main>
+  <div class="garmentbar" id="garmentBar" hidden>
+    <label class="grow">Enlace directo a la imagen de la prenda (jpg, png o webp · foto de producto frontal sobre fondo liso)
+      <input id="garmentUrl" type="url" placeholder="https://tienda.com/…/camiseta.jpg" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="desc">Descripción para el modelo (en inglés)
+      <input id="garmentDesc" type="text" placeholder="short sleeve t-shirt" autocomplete="off" spellcheck="false">
+    </label>
+    <button id="btnLoadGarment" class="primary small">Cargar prenda</button>
+    <button id="btnSampleGarment" class="small">Prenda de ejemplo</button>
+  </div>
+
   <section class="stage">
     <div class="panel">
       <h2>Antes <span id="beforeCaption">cámara en vivo · espejo</span></h2>
@@ -169,6 +193,7 @@
 
     <div class="panel garment">
       <img id="garmentImg" alt="Prenda de la demo" src="__GARMENT_DATA_URL__">
+      <div class="garment-caption" id="garmentCaption">prenda de ejemplo</div>
       <div class="arrow" style="color:#555">→</div>
     </div>
 
@@ -254,12 +279,21 @@
 // ================================================================
 // Demo configuration
 // ================================================================
-const GARMENT = {
+const GARMENT_URL_ENABLED = __GARMENT_URL_ENABLED__; // set by build.mjs: false for index.html, true for custom-garment.html
+const GARMENT_TYPE = "upper_body"; // the IDM-VTON Space auto-masks the upper body only
+const EMBEDDED_GARMENT = {
   dataUrl: document.getElementById("garmentImg").getAttribute("src"),
-  // IDM-VTON uses this description in its prompt ("model is wearing …"). Change it if you swap the garment.
+  // IDM-VTON uses this description in its prompt ("model is wearing …"). Change it if you swap the embedded garment.
   description: "navy and light blue color-block short sleeve polo shirt",
-  type: "upper_body", // upper_body | lower_body | dresses
+  label: "prenda de ejemplo (polo bicolor)",
 };
+const DEFAULT_URL_DESCRIPTION = "short sleeve t-shirt";
+// Current garment: blob/dataUrl when we hold the pixels; only url when the Space has to download it itself
+const currentGarment = { blob: null, dataUrl: null, url: null, source: "embedded", label: EMBEDDED_GARMENT.label, pending: null };
+function garmentDescription() {
+  if (currentGarment.source === "embedded") return EMBEDDED_GARMENT.description;
+  return (els.garmentDesc.value || "").trim() || DEFAULT_URL_DESCRIPTION;
+}
 
 const BACKENDS = {
   idm: {
@@ -268,7 +302,7 @@ const BACKENDS = {
     // Signature verified against the Space's /info (Gradio 4.24):
     // dict(ImageEditor), garm_img, garment_des, is_checked(auto-mask), is_checked_crop, denoise_steps, seed
     args: ({ person, garment, steps }) => [
-      { background: person, layers: [], composite: null }, garment, GARMENT.description, true, false, steps, 42,
+      { background: person, layers: [], composite: null }, garment, garmentDescription(), true, false, steps, 42,
     ],
     pick: (data) => data[0],
     minSteps: 10,
@@ -277,7 +311,7 @@ const BACKENDS = {
     id: "leffa", label: "Leffa", kind: "gradio", space: "franciszzj/Leffa",
     endpoint: "/leffa_predict_vt",
     // Signature verified against /gradio_api/info (Gradio 5.38): src, ref, ref_acceleration, step(>=30), scale, seed, vt_model_type, vt_garment_type, vt_repaint
-    args: ({ person, garment, steps }) => [person, garment, false, Math.max(30, steps), 2.5, 42, "viton_hd", GARMENT.type, false],
+    args: ({ person, garment, steps }) => [person, garment, false, Math.max(30, steps), 2.5, 42, "viton_hd", GARMENT_TYPE, false],
     pick: (data) => data[0],
     minSteps: 30,
   },
@@ -320,6 +354,8 @@ const els = {
   errorbox: $("errorbox"), errorText: $("errorText"), errorHint: $("errorHint"), pills: $("pills"), log: $("log"),
   btnCapture: $("btnCapture"), btnGenerate: $("btnGenerate"), btnRetake: $("btnRetake"), btnCancel: $("btnCancel"),
   btnDownload: $("btnDownload"), btnCamera: $("btnCamera"),
+  garmentBar: $("garmentBar"), garmentUrl: $("garmentUrl"), garmentDesc: $("garmentDesc"), btnLoadGarment: $("btnLoadGarment"),
+  btnSampleGarment: $("btnSampleGarment"), garmentImg: $("garmentImg"), garmentCaption: $("garmentCaption"),
 };
 
 const logLines = [];
@@ -332,6 +368,7 @@ function log(msg) {
 
 const app = { state: "boot", stream: null, photoBlob: null, photoDataUrl: null, resultBlob: null, resultUrl: null, abort: null, timer: null, t0: 0 };
 window.__vton = app; // for diagnostics
+app.garment = currentGarment;
 
 function setStatus(kind, text, detail = "") {
   els.status.className = "statusbar " + kind;
@@ -391,7 +428,80 @@ function dataUrlToBlob(dataUrl) {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new Blob([bytes], { type: mime });
 }
-const garmentBlob = dataUrlToBlob(GARMENT.dataUrl);
+// ================================================================
+// Garment: embedded by default; optionally loaded from a URL (custom-garment.html)
+// ================================================================
+function setGarment(next) {
+  Object.assign(currentGarment, { blob: null, dataUrl: null, url: null }, next);
+  els.garmentImg.src = currentGarment.dataUrl || currentGarment.url || EMBEDDED_GARMENT.dataUrl;
+  els.garmentCaption.textContent = currentGarment.label;
+  pill("garment", `Prenda: ${currentGarment.source === "embedded" ? "ejemplo" : "enlace"}`, "ok");
+  log(`prenda: ${currentGarment.label}`);
+}
+function useEmbeddedGarment() {
+  setGarment({ blob: dataUrlToBlob(EMBEDDED_GARMENT.dataUrl), dataUrl: EMBEDDED_GARMENT.dataUrl, source: "embedded", label: EMBEDDED_GARMENT.label });
+}
+async function fetchImageBlob(url) {
+  const r = await fetch(url, { mode: "cors", credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const blob = await r.blob();
+  if (!blob.type.startsWith("image/")) throw new Error(`no es una imagen (${blob.type || "tipo desconocido"})`);
+  return blob;
+}
+// Public image proxy that adds CORS headers (same one the main app uses). It pads to 3:4 on white too, but we normalize locally anyway.
+const proxyUrl = (url) => `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=${OUT_W}&h=${OUT_H}&fit=contain&bg=white&cbg=white&output=jpg&q=92`;
+function blobToImage(blob) {
+  return new Promise((res, rej) => {
+    const u = URL.createObjectURL(blob); const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(u); res(img); };
+    img.onerror = () => { URL.revokeObjectURL(u); rej(new Error("no se pudo decodificar la imagen")); };
+    img.src = u;
+  });
+}
+// 768x1024 JPEG with the garment centered on white: the layout the models were trained on
+async function normalizeGarment(blob) {
+  const img = await blobToImage(blob);
+  const canvas = document.createElement("canvas"); canvas.width = OUT_W; canvas.height = OUT_H;
+  const ctx = canvas.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, OUT_W, OUT_H); ctx.imageSmoothingQuality = "high";
+  const s = Math.min(OUT_W / img.naturalWidth, OUT_H / img.naturalHeight) * 0.96;
+  const w = Math.round(img.naturalWidth * s), h = Math.round(img.naturalHeight * s);
+  ctx.drawImage(img, Math.round((OUT_W - w) / 2), Math.round((OUT_H - h) / 2), w, h);
+  return { blob: await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.92)), dataUrl: canvas.toDataURL("image/jpeg", 0.92) };
+}
+// Can the browser at least display it (no CORS needed)? Then the Space can still download it server-side.
+const probeImage = (url) => new Promise((res) => { const img = new Image(); img.onload = () => res(true); img.onerror = () => res(false); img.referrerPolicy = "no-referrer"; img.src = url; });
+
+async function loadGarmentFromUrl(rawUrl) {
+  const url = (rawUrl || "").trim();
+  if (!/^https?:\/\/\S+$/i.test(url)) {
+    showError("El enlace de la prenda debe empezar por http:// o https://", "Copia la dirección directa de la imagen (clic derecho → Copiar dirección de la imagen), no la de la página del producto.");
+    return false;
+  }
+  clearError(); els.btnLoadGarment.disabled = true; pill("garment", "Prenda: cargando…", "warn"); els.garmentCaption.textContent = "cargando enlace…";
+  const run = (async () => {
+    let lastErr = null;
+    for (const [how, fn] of [["descarga directa", () => fetchImageBlob(url)], ["proxy images.weserv.nl", () => fetchImageBlob(proxyUrl(url))]]) {
+      try {
+        const raw = await withTimeout(fn(), 15000, how);
+        const norm = await normalizeGarment(raw);
+        setGarment({ blob: norm.blob, dataUrl: norm.dataUrl, url, source: how, label: `enlace · ${how} · ${OUT_W}×${OUT_H}` });
+        localStorage.setItem("vton.garmentUrl", url);
+        return true;
+      } catch (e) { lastErr = e; log(`prenda: ${how} falló (${e.message})`); }
+    }
+    if (await probeImage(url)) {
+      setGarment({ url, source: "descarga en el servidor", label: "enlace · la descargará el modelo · sin normalizar" });
+      localStorage.setItem("vton.garmentUrl", url);
+      setStatus("warn", "Prenda cargada sin normalizar", "Si la imagen no es 3:4 puede salir deformada");
+      return true;
+    }
+    showError(`No se pudo cargar la prenda desde el enlace (${lastErr?.message || "sin detalle"}).`, "Debe ser un enlace directo a una imagen jpg/png/webp. Sigue disponible la prenda de ejemplo.");
+    useEmbeddedGarment();
+    return false;
+  })();
+  currentGarment.pending = run;
+  try { return await run; } finally { currentGarment.pending = null; els.btnLoadGarment.disabled = false; }
+}
 
 // ================================================================
 // Camera
@@ -509,7 +619,7 @@ async function runGradio(b, ctl) {
   const client = await withTimeout(getClient(b), 40000, `Conexión con ${b.label}`);
   const { handle_file } = window.__gradio;
   const steps = Math.max(b.minSteps || 1, settings.steps);
-  const args = b.args({ person: handle_file(app.photoBlob), garment: handle_file(garmentBlob), steps });
+  const args = b.args({ person: handle_file(app.photoBlob), garment: currentGarment.blob ? handle_file(currentGarment.blob) : handle_file(currentGarment.url), steps });
   ctl.phase(`Enviando imágenes a ${b.label}…`);
   const job = client.submit(b.endpoint, args);
   ctl.onCancel(() => { try { job.cancel(); } catch {} });
@@ -552,7 +662,7 @@ async function runFal(b, ctl) {
   const auth = { Authorization: `Key ${key}` };
   ctl.phase("Enviando a fal.ai…");
   const body = {
-    human_image_url: app.photoDataUrl, garment_image_url: GARMENT.dataUrl, garment_type: GARMENT.type,
+    human_image_url: app.photoDataUrl, garment_image_url: currentGarment.dataUrl || currentGarment.url, garment_type: GARMENT_TYPE,
     num_inference_steps: Math.max(30, settings.steps), guidance_scale: 2.5, seed: 42, output_format: "png",
   };
   const r = await fetch(`https://queue.fal.run/${b.model}`, { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal });
@@ -587,6 +697,7 @@ function friendlyError(e) {
 async function generate() {
   if (!app.photoBlob || app.state === "generating") return;
   clearError();
+  if (currentGarment.pending) { setStatus("busy", "Esperando a que cargue la prenda…"); if (!(await currentGarment.pending)) return; }
   const available = settings.order.map((id) => BACKENDS[id]).filter(Boolean).filter((b) => b.kind !== "fal" || settings.falKey);
   if (!available.length) { showError("No hay ningún modelo configurado.", "Revisa el orden de modelos en Ajustes."); return; }
   const ac = new AbortController(); app.abort = ac;
@@ -685,6 +796,15 @@ els.btnRetake.addEventListener("click", retake);
 els.btnCancel.addEventListener("click", () => cancelGeneration());
 els.btnDownload.addEventListener("click", download);
 els.btnCamera.addEventListener("click", startCamera);
+els.btnLoadGarment.addEventListener("click", () => loadGarmentFromUrl(els.garmentUrl.value));
+els.btnSampleGarment.addEventListener("click", () => { els.garmentUrl.value = ""; localStorage.removeItem("vton.garmentUrl"); clearError(); useEmbeddedGarment(); });
+els.garmentUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); loadGarmentFromUrl(els.garmentUrl.value); } });
+els.garmentDesc.addEventListener("change", () => localStorage.setItem("vton.garmentDesc", els.garmentDesc.value));
+document.addEventListener("paste", (e) => {
+  if (!GARMENT_URL_ENABLED || e.target.matches("input, textarea")) return;
+  const pasted = (e.clipboardData?.getData("text") || "").trim();
+  if (/^https?:\/\/\S+$/i.test(pasted)) { els.garmentUrl.value = pasted; loadGarmentFromUrl(pasted); }
+});
 document.addEventListener("keydown", (e) => {
   if (e.target.matches("input, select, textarea")) return;
   if (e.code === "Space") { e.preventDefault(); if (app.state === "camera-ready") capture(); }
@@ -704,6 +824,13 @@ if (!window.__gradio?.Client) {
 } else {
   log(`inicio · ${location.protocol} · secureContext=${window.isSecureContext} · ${navigator.userAgent.split(") ")[0]})`);
   setState("boot");
+  useEmbeddedGarment();
+  if (GARMENT_URL_ENABLED) {
+    els.garmentBar.hidden = false;
+    els.garmentDesc.value = localStorage.getItem("vton.garmentDesc") || "";
+    const savedUrl = localStorage.getItem("vton.garmentUrl");
+    if (savedUrl) { els.garmentUrl.value = savedUrl; loadGarmentFromUrl(savedUrl); }
+  }
   checkBackends();
   startCamera();
 }

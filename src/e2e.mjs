@@ -1,5 +1,5 @@
 // End-to-end test in headless Chrome with a fake camera, driven through the Chrome DevTools Protocol (no deps: Node >= 22 + Chrome).
-// Usage: node src/e2e.mjs index.html photo.mjpeg [--skip-generate] [--deny-camera] [--order=leffa]
+// Usage: node src/e2e.mjs index.html photo.mjpeg [--skip-generate] [--deny-camera] [--order=leffa] [--garment-url=https://…]
 //   photo.mjpeg = any half-body JPEG renamed to .mjpeg (Chrome plays it as the fake camera).
 //   WIN=1280,720 forces the window size; OUT=/path changes where screenshots and the result go (default ./e2e-out).
 import { spawn } from "node:child_process";
@@ -78,6 +78,19 @@ try {
   if (cam === "camera-error") { await shot("01-camera-error"); await dumpUi(); throw new Error("fin: prueba de cámara denegada"); }
   await shot("01-camera");
   console.log("   video:", await evalJs("(()=>{const v=document.getElementById('cam');return v.videoWidth+'x'+v.videoHeight+' readyState='+v.readyState})()"));
+  const gUrl = (process.argv.find((a) => a.startsWith("--garment-url=")) || "").slice(14);
+  if (gUrl) {
+    await evalJs(`document.getElementById("garmentUrl").value = ${JSON.stringify(gUrl)}; document.getElementById("btnLoadGarment").click();`);
+    const t0 = Date.now(); let info = null;
+    while (Date.now() - t0 < 45000) {
+      info = JSON.parse(await evalJs("JSON.stringify({source: window.__vton.garment.source, pending: !!window.__vton.garment.pending, blob: window.__vton.garment.blob ? window.__vton.garment.blob.size : null, url: window.__vton.garment.url, error: document.getElementById('errorText').textContent})"));
+      if (!info.pending) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    console.log(`   prenda (${((Date.now() - t0) / 1000).toFixed(1)} s):`, JSON.stringify(info));
+    await shot("00-garment");
+    if (info?.blob) fs.writeFileSync(`${OUT}/garment.jpg`, Buffer.from(await evalJs("window.__vton.garment.dataUrl.split(',')[1]"), "base64"));
+  }
   await evalJs("document.getElementById('btnCapture').click()");
   console.log("2) captura:", await waitState(["captured"], 15000));
   await shot(`02-captured-${(process.env.WIN || "1600x1000").replace(",", "x")}`);

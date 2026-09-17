@@ -1,5 +1,6 @@
-// Assembles ../index.html from template.html + the Gradio client + the garment.
-// Usage: node build.mjs   (only needed to regenerate the HTML; the final HTML depends on nothing)
+// Assembles ../index.html (embedded garment only) and ../custom-garment.html (garment from a URL) from template.html,
+// the Gradio client bundle and the garment image.
+// Usage: node build.mjs   (only needed to regenerate the HTML files; they depend on nothing at runtime)
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,17 +24,23 @@ const pairs = m[1]
 bundle = bundle.slice(0, m.index) + `\nwindow.__gradio = { ${pairs.join(", ")} };\n`;
 if (/<\/script/i.test(bundle)) bundle = bundle.replace(/<\/script/gi, "<\\/script");
 
-const garmentB64 = read("garment.jpg").toString("base64");
-const garmentDataUrl = `data:image/jpeg;base64,${garmentB64}`;
+const garmentDataUrl = `data:image/jpeg;base64,${read("garment.jpg").toString("base64")}`;
+const template = read("template.html").toString("utf8");
 
-let html = read("template.html").toString("utf8");
-const replaceOnce = (needle, value) => {
-  if (!html.includes(needle)) throw new Error(`Missing placeholder: ${needle}`);
-  html = html.split(needle).join(value);
-};
-replaceOnce("/*__GRADIO_CLIENT__*/", bundle);
-replaceOnce("__GARMENT_DATA_URL__", garmentDataUrl);
-
-const out = path.join(here, "..", "index.html");
-fs.writeFileSync(out, html);
-console.log(`OK -> ${out} (${(fs.statSync(out).size / 1024).toFixed(0)} KB)`);
+const OUTPUTS = [
+  { file: "index.html", garmentUrl: false },
+  { file: "custom-garment.html", garmentUrl: true },
+];
+for (const { file, garmentUrl } of OUTPUTS) {
+  let html = template;
+  const replaceOnce = (needle, value) => {
+    if (!html.includes(needle)) throw new Error(`Missing placeholder: ${needle}`);
+    html = html.split(needle).join(value);
+  };
+  replaceOnce("/*__GRADIO_CLIENT__*/", bundle);
+  replaceOnce("__GARMENT_DATA_URL__", garmentDataUrl);
+  replaceOnce("__GARMENT_URL_ENABLED__", String(garmentUrl));
+  const out = path.join(here, "..", file);
+  fs.writeFileSync(out, html);
+  console.log(`OK -> ${out} (${(fs.statSync(out).size / 1024).toFixed(0)} KB)`);
+}

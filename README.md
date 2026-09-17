@@ -15,6 +15,27 @@ No hay build, npm, backend ni servidor local. La prenda (una polo bicolor) va in
 Ajustes (desplegable inferior): token HF, X-IP-Token, clave fal.ai, orden de modelos, pasos, tiempo máximo,
 URL de un Gradio local. Se guardan en `localStorage`, nunca en el archivo.
 
+## Prenda por enlace: `custom-garment.html`
+
+Misma página, más una barra arriba para pegar el **enlace directo** a la imagen de una prenda (clic derecho sobre la foto del
+producto → «Copiar dirección de la imagen»). También vale pegar el enlace con Cmd+V en cualquier punto de la página. La prenda
+de ejemplo sigue incrustada y vuelve con «Prenda de ejemplo» o si el enlace falla.
+
+Cómo se trae la imagen desde un `file://`, en este orden (probado):
+
+1. Descarga directa desde el navegador, si el servidor de la tienda envía cabeceras CORS (pocos lo hacen).
+2. A través del proxy público `images.weserv.nl` (el mismo que usa la app principal), que añade CORS y aplana transparencias en blanco.
+3. Si nada de eso funciona pero la imagen se puede mostrar, se le pasa la URL al Space y él la descarga (verificado con Gradio 4.24).
+
+En 1 y 2 la imagen se normaliza en el navegador a 768×1024 con fondo blanco, que es lo que esperan los modelos; en 3 no, e IDM-VTON
+la estira a 3:4. El campo «Descripción para el modelo» alimenta el prompt de IDM-VTON («model is wearing …»): en inglés y corto.
+El enlace y la descripción se recuerdan entre sesiones, así que se pueden dejar listos antes de la presentación.
+
+Límites: solo prendas de torso (el Space de IDM-VTON enmascara únicamente la parte superior). Funciona mejor con foto de producto
+frontal, sin persona y sobre fondo liso. El enlace pasa por weserv.nl y por el Space de Hugging Face: no uses imágenes privadas.
+Probado en Chrome headless con un enlace con CORS (directa), uno sin CORS (proxy) y uno roto (error en pantalla y vuelta al
+ejemplo). La generación completa con prenda por enlace usa el mismo camino de subida ya probado con la prenda incrustada.
+
 ## Qué modelo se usa y por qué
 
 | Vía | Veredicto | Motivo (verificado) |
@@ -75,11 +96,12 @@ del resultado como plan C (mostrarla si todo falla).
 
 ## Estructura
 
-- `index.html` — entregable final, autocontenido.
+- `index.html` — entregable final, autocontenido, prenda incrustada.
+- `custom-garment.html` — igual, más la barra de prenda por enlace.
 - `src/template.html` — plantilla legible (CSS + app JS) con dos placeholders.
 - `src/gradio-client-2.6.0.min.js` — bundle oficial de `@gradio/client` descargado de jsDelivr.
 - `src/garment.jpg` — prenda de la demo.
-- `src/build.mjs` — ensambla el HTML (`node src/build.mjs`, Node ≥ 18). Solo hace falta para regenerarlo.
+- `src/build.mjs` — ensambla los dos HTML (`node src/build.mjs`, Node ≥ 18). Solo hace falta para regenerarlos.
 - `src/e2e.mjs` — prueba automática en Chrome headless con cámara falsa (sin dependencias). Sirve para ensayar sin gastar
   la cámara ni tocar la pantalla: `cp foto.jpg foto.mjpeg && node src/e2e.mjs index.html foto.mjpeg`
   (`--skip-generate` no gasta cuota; `--deny-camera` y `--order=leffa` prueban las pantallas de error). Deja capturas y
