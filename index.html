@@ -141,6 +141,7 @@
   .errorbox.on { display: block; }
   .errorbox strong { color: var(--err); }
   .errorbox .hint { color: var(--muted); font-size: 18px; margin-top: 6px; }
+  .errorbox button { display: block; }
 
   footer { padding: 4px 28px 16px; }
   details { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
@@ -214,7 +215,8 @@
     <div class="detail" id="statusDetail"></div>
   </div>
 
-  <div class="errorbox" id="errorbox"><strong>Error.</strong> <span id="errorText"></span><div class="hint" id="errorHint"></div></div>
+  <div class="errorbox" id="errorbox"><strong>Error.</strong> <span id="errorText"></span><div class="hint" id="errorHint"></div>
+    <button id="btnOpenSettings" class="small" hidden style="margin-top:12px">Abrir ajustes y pegar la clave de fal.ai</button></div>
 
   <div class="controls">
     <button id="btnCapture" class="primary" disabled>Capturar foto <kbd>espacio</kbd></button>
@@ -257,12 +259,15 @@
       <label>Tiempo máximo por modelo (segundos) antes de pasar al siguiente
         <input id="setTimeout" type="number" min="30" max="600" step="10" value="150">
       </label>
-      <label>URL de un Gradio local con la app de IDM-VTON (opcional, sustituye al Space)
-        <input id="setCustomUrl" type="url" placeholder="http://127.0.0.1:7860" autocomplete="off" spellcheck="false">
+      <label>IDM-VTON alternativo: tu copia del Space en GPU de pago (usuario/nombre) o un Gradio local (URL). Sustituye al Space público y su cuota.
+        <input id="setCustomUrl" type="text" placeholder="tu-usuario/IDM-VTON  ·  http://127.0.0.1:7860" autocomplete="off" spellcheck="false">
       </label>
       <div class="note">
-        Los valores se guardan solo en este navegador (localStorage). Sin token, la cuota ZeroGPU anónima es de unos 3 min de GPU al día por IP
-        (≈ 5-6 generaciones con IDM-VTON; Leffa exige 180 s libres por llamada, así que en anónimo casi nunca entra).
+        Los valores se guardan solo en este navegador (localStorage). Sin token, la cuota ZeroGPU anónima es de 180 s de GPU al día por IP
+        (≈ 4-5 generaciones con IDM-VTON; Leffa exige 180 s libres por llamada, así que en anónimo casi nunca entra).
+        Para no depender de esa cuota: (a) duplica <code>yisol/IDM-VTON</code> en tu cuenta de Hugging Face con hardware de pago
+        (Duplicate this Space → GPU A10G/L4, ~1 USD/h mientras esté encendido) y escribe <code>tu-usuario/IDM-VTON</code> arriba;
+        (b) clave de fal.ai (0,10 USD por imagen, modelo Leffa); (c) hotspot del móvil = IP nueva con cuota limpia.
         Un Gradio local debe lanzarse con <code>demo.launch(strict_cors=False)</code> para aceptar peticiones desde un archivo <code>file://</code>.
       </div>
     </div>
@@ -2435,7 +2440,7 @@ const els = {
   status: $("status"), statusText: $("statusText"), statusDetail: $("statusDetail"), timer: $("timer"),
   errorbox: $("errorbox"), errorText: $("errorText"), errorHint: $("errorHint"), pills: $("pills"), log: $("log"),
   btnCapture: $("btnCapture"), btnGenerate: $("btnGenerate"), btnRetake: $("btnRetake"), btnCancel: $("btnCancel"),
-  btnDownload: $("btnDownload"), btnCamera: $("btnCamera"),
+  btnDownload: $("btnDownload"), btnCamera: $("btnCamera"), btnOpenSettings: $("btnOpenSettings"), settingsBox: $("settingsBox"), setFalKey: $("setFalKey"),
   garmentBar: $("garmentBar"), garmentUrl: $("garmentUrl"), garmentDesc: $("garmentDesc"), btnLoadGarment: $("btnLoadGarment"),
   btnSampleGarment: $("btnSampleGarment"), garmentImg: $("garmentImg"), garmentCaption: $("garmentCaption"),
 };
@@ -2457,8 +2462,9 @@ function setStatus(kind, text, detail = "") {
   els.statusText.textContent = text;
   els.statusDetail.textContent = detail;
 }
-function showError(text, hint = "") {
+function showError(text, hint = "", kind = "") {
   els.errorText.textContent = text; els.errorHint.textContent = hint;
+  els.btnOpenSettings.hidden = kind !== "quota";
   els.errorbox.classList.add("on");
   log("ERROR: " + text + (hint ? " | " + hint : ""));
 }
@@ -2770,7 +2776,14 @@ async function runFal(b, ctl) {
 
 function friendlyError(e) {
   const m = String(e?.message || e || "");
-  if (/ZeroGPU (quota|runs limit)/i.test(m)) return ["Cuota ZeroGPU agotada para esta IP en este modelo. " + (m.match(/Try again in [\d:]+/)?.[0] || ""), "Opciones: cambiar de red (hotspot del móvil = IP nueva), usar la clave de fal.ai en Ajustes, o un X-IP-Token de tu cuenta HF."];
+  if (/ZeroGPU (quota|runs limit)/i.test(m)) {
+    const wait = m.match(/Try again in ([\d:]+)/)?.[1];
+    return [
+      "Cuota gratuita de ZeroGPU agotada para esta IP" + (wait ? ` (se renueva en ${wait})` : "") + ".",
+      "Sin depender de la cuota: pega una clave de fal.ai en Ajustes (0,10 USD por imagen) o apunta a tu copia del Space en GPU de pago. Gratis: cambia de red (hotspot del móvil = IP nueva).",
+      "quota",
+    ];
+  }
   if (/tiempo agotado/i.test(m)) return [m, "El Space puede estar saturado. Reintenta o cambia el orden de modelos en Ajustes."];
   if (/Failed to fetch|NetworkError|Could not connect|ECONN|fetch/i.test(m)) return ["No hay conexión con el modelo (" + m + ")", "Revisa la red/wifi. Si el Space está caído, prueba otro modelo en Ajustes."];
   return [m, ""];
@@ -2800,13 +2813,13 @@ async function generate() {
       blob = await (b.kind === "fal" ? runFal(b, ctl) : runGradio(b, ctl));
     } catch (e) {
       if (ac.signal.aborted || e?.name === "AbortError") { log("generación cancelada"); return; }
-      const [msg, hint] = friendlyError(e);
+      const [msg, hint, kind] = friendlyError(e);
       log(`${b.label} falló: ${e?.message || e}`);
       clients.forEach((v, k) => { if (k.startsWith(b.id + "|")) clients.delete(k); });
       const next = available[i + 1];
       if (next) { setStatus("warn", `${b.label} falló · probando ${next.label}…`, msg); lastPhase = ""; continue; }
       stopTimer(); setState("error-gen"); setStatus("err", "No se pudo generar");
-      showError(msg, hint || "Pulsa Generar para reintentar, o Repetir foto.");
+      showError(msg, hint || "Pulsa Generar para reintentar, o Repetir foto.", kind);
       app.abort = null; return;
     }
     if (ac.signal.aborted) return;
@@ -2851,7 +2864,7 @@ async function checkBackends() {
   pill("net", navigator.onLine ? "Red: en línea" : "Red: SIN CONEXIÓN", navigator.onLine ? "ok" : "err");
   for (const id of settings.order) {
     const b = BACKENDS[id]; if (!b) continue;
-    if (b.kind === "fal") { pill(id, settings.falKey ? "fal.ai: clave puesta" : "fal.ai: sin clave", settings.falKey ? "ok" : ""); continue; }
+    if (b.kind === "fal") { pill(id, settings.falKey ? "fal.ai: respaldo activo" : "fal.ai: sin clave (respaldo de pago)", settings.falKey ? "ok" : ""); continue; }
     pill(id, `${b.label}: comprobando…`);
     try {
       const r = await withTimeout(fetch(`https://huggingface.co/api/spaces/${b.space}`), 15000, "estado del Space");
@@ -2878,6 +2891,7 @@ els.btnRetake.addEventListener("click", retake);
 els.btnCancel.addEventListener("click", () => cancelGeneration());
 els.btnDownload.addEventListener("click", download);
 els.btnCamera.addEventListener("click", startCamera);
+els.btnOpenSettings.addEventListener("click", () => { els.settingsBox.open = true; els.setFalKey.scrollIntoView({ block: "center" }); els.setFalKey.focus(); });
 els.btnLoadGarment.addEventListener("click", () => loadGarmentFromUrl(els.garmentUrl.value));
 els.btnSampleGarment.addEventListener("click", () => { els.garmentUrl.value = ""; localStorage.removeItem("vton.garmentUrl"); clearError(); useEmbeddedGarment(); });
 els.garmentUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); loadGarmentFromUrl(els.garmentUrl.value); } });

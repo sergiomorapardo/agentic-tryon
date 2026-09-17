@@ -13,7 +13,7 @@ No hay build, npm, backend ni servidor local. La prenda (una polo bicolor) va in
 5. **Descargar resultado** (`D`) guarda el PNG. **Repetir foto** (`R`) vuelve a la cámara. `esc` cancela.
 
 Ajustes (desplegable inferior): token HF, X-IP-Token, clave fal.ai, orden de modelos, pasos, tiempo máximo,
-URL de un Gradio local. Se guardan en `localStorage`, nunca en el archivo.
+IDM-VTON alternativo (tu copia del Space en GPU de pago o un Gradio local). Se guardan en `localStorage`, nunca en el archivo.
 
 ## Prenda por enlace: `custom-garment.html`
 
@@ -80,9 +80,14 @@ Supuestos / no verificado:
 
 ## Puntos de fallo en vivo y mitigación rápida
 
-1. **Cuota ZeroGPU agotada por IP** (el error más probable en un evento: la wifi comparte IP con toda la sala).
-   → Presenta desde el **hotspot del móvil** (IP propia y limpia). No ensayes el mismo día desde esa IP: la cuota resetea 24 h después del primer uso.
-   → Ten una **clave de fal.ai** con 2-3 USD cargados y ponla en Ajustes; el HTML pasa solo a fal si IDM-VTON falla.
+1. **Cuota ZeroGPU agotada por IP** (el error más probable en un evento: la wifi comparte IP con toda la sala; el propio error
+   ofrece un botón que abre Ajustes). No hay ningún Space público con estos modelos en GPU de pago (revisados los 183 Spaces
+   de try-on el 16-sep-2026), así que las salidas reales son tres:
+   → **Clave de fal.ai** en Ajustes (0,10 USD por imagen, modelo Leffa; cuenta en 3 minutos, prepago). La página pasa sola a fal cuando IDM-VTON falla.
+   → **Tu copia del Space en GPU de pago**: en `yisol/IDM-VTON` → «Duplicate this Space» → hardware A10G small (1 USD/h) o L4 (0,80 USD/h);
+     requiere plan PRO para crear Spaces con cómputo. Escribe `tu-usuario/IDM-VTON` en el campo «IDM-VTON alternativo» de Ajustes.
+     Sin cuota ni cola compartida; enciéndelo 20 min antes (descarga ~10 GB de pesos) y páusalo al terminar para no pagar.
+   → **Hotspot del móvil** (IP propia y limpia): gratis, 4-5 generaciones. No ensayes el mismo día desde esa IP: la cuota resetea 24 h después del primer uso.
 2. **Cola larga en el Space** (mucha gente usándolo). El estado muestra posición y ETA; a los 150 s salta al siguiente modelo.
    → Baja el tiempo máximo a 60-90 s en Ajustes si tienes fal como respaldo.
 3. **Space caído / durmiendo**: las pastillas de la cabecera lo dicen al abrir la página. → Cambia el orden de modelos en Ajustes.
