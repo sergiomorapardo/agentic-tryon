@@ -25,7 +25,7 @@
     display: flex; align-items: center; justify-content: space-between; gap: 16px;
     padding: 18px 28px; border-bottom: 1px solid var(--line);
   }
-  header h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: .2px; }
+  header h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: .2px; white-space: nowrap; }
   header h1 small { color: var(--muted); font-weight: 400; font-size: 18px; margin-left: 10px; }
   .pills { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
   .pill {
@@ -162,14 +162,19 @@
   .agentsteps { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 15px; color: var(--muted); }
   .verdict { flex-basis: 100%; color: var(--fg); font-size: 16px; }
   /* Graph panel ("LangGraph Studio"-style): nodes, edges and trace of the workflow as it runs */
-  .graphpanel { border: 1px solid var(--line); border-radius: 14px; background: #07090c; margin-bottom: 10px; }
-  .graphpanel summary { display: flex; gap: 14px; align-items: baseline; font: 600 14px/1 ui-monospace, Menlo, monospace; color: var(--fg); }
-  .graphpanel summary span { color: var(--muted); font-weight: 400; }
-  .gp-body { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 0; border-top: 1px solid var(--line); height: 230px; }
+  .tabs { display: flex; gap: 6px; margin-right: auto; margin-left: 28px; }
+  .tab { min-height: 40px; font-size: 16px; padding: 0 16px; white-space: nowrap; border-radius: 10px; background: transparent; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
+  .tab.active { background: var(--panel-2); color: var(--fg); border-color: var(--accent); }
+  .tab .tabdot { width: 9px; height: 9px; border-radius: 50%; background: transparent; }
+  .tab.running .tabdot { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  .graphtab { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 16px 28px 10px; }
+  .graphtab .gp-head { font: 14px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); }
+  .graphpanel { flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 14px; background: #07090c; display: flex; }
+  .gp-body { flex: 1; display: grid; grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr); gap: 0; min-height: 0; }
   .gp-body svg { width: 100%; height: 100%; display: block; }
-  .gp-side { display: grid; grid-template-rows: 1fr 1fr; border-left: 1px solid var(--line); min-height: 0; }
+  .gp-side { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); border-top: 1px solid var(--line); min-height: 0; }
   .gp-side pre { margin: 0; padding: 8px 12px; overflow: auto; font: 12px/1.45 ui-monospace, Menlo, monospace; color: #b8c4d0; white-space: pre-wrap; min-height: 0; }
-  .gp-side pre + pre { border-top: 1px solid var(--line); color: #9fd3e6; }
+  .gp-side pre + pre { border-left: 1px solid var(--line); color: #9fd3e6; }
   .gp-side .t-run { color: var(--accent); } .gp-side .t-ok { color: var(--ok); } .gp-side .t-err { color: var(--err); } .gp-side .t-edge { color: #c9a6ff; }
   #graphSvg .gnode rect { fill: #111720; stroke: #3a4554; stroke-width: 1.5; }
   #graphSvg .gnode text { fill: #cfd8e3; font: 600 12px ui-monospace, Menlo, monospace; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
@@ -197,10 +202,14 @@
 <body>
 <header>
   <h1>Probador virtual <small id="subtitle">modelo open source · IDM-VTON</small></h1>
+  <nav class="tabs agent-only" id="tabs">
+    <button class="tab active" data-tab="tryon">Probador</button>
+    <button class="tab" data-tab="graph">Grafo <span class="tabdot"></span><kbd>G</kbd></button>
+  </nav>
   <div class="pills" id="pills"></div>
 </header>
 
-<main>
+<main id="tryonTab">
   <div class="garmentbar" id="garmentBar" hidden>
     <label class="grow">Enlace directo a la imagen de la prenda (jpg, png o webp · foto de producto frontal sobre fondo liso)
       <input id="garmentUrl" type="url" placeholder="https://tienda.com/…/camiseta.jpg" autocomplete="off" spellcheck="false">
@@ -262,19 +271,24 @@
   </div>
 </main>
 
-<footer>
-  <details class="graphpanel agent-only" id="graphBox" open>
-    <summary>Grafo del workflow <span>nodos · aristas · traza · clic en un nodo para ver su estado · tecla G</span></summary>
+<main id="graphTab" class="graphtab agent-only" hidden>
+  <div class="gp-head">Nodos y aristas declarados en <code>agent/workflow.mjs</code>; se iluminan con los eventos que emite el servidor.
+    Violeta = Claude · verde azulado = generador de imagen · gris = código. Clic en un nodo para ver su estado.</div>
+  <div class="graphpanel">
     <div class="gp-body">
-      <svg id="graphSvg" viewBox="0 0 1000 215" preserveAspectRatio="xMidYMid meet"></svg>
+      <svg id="graphSvg" viewBox="0 10 1000 210" preserveAspectRatio="xMidYMid meet"></svg>
       <div class="gp-side"><pre id="graphTrace">esperando una ejecución…</pre><pre id="graphState">estado del nodo seleccionado</pre></div>
     </div>
-  </details>
+  </div>
+</main>
+
+<footer>
   <details id="settingsBox">
     <summary>Ajustes y registro (token HF, respaldo, pasos, diagnóstico)</summary>
     <div class="settings agent-only"><div class="note">
-      Modo agéntico: las claves viven en <code>open-source-tryon/.env</code> (<code>ANTHROPIC_API_KEY</code>, opcional <code>HF_TOKEN</code>) y solo las lee
-      <code>server.mjs</code>; nunca llegan al navegador. Modelo, revisiones máximas y Space se configuran ahí (<code>CLAUDE_MODEL</code>, <code>MAX_REVISIONS</code>, <code>IDM_SPACE</code>).
+      Modo agéntico: las claves viven en <code>open-source-tryon/.env</code> (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>) y solo las lee
+      <code>server.mjs</code>; nunca llegan al navegador. Ahí también se elige el generador (<code>GENERATOR=openai</code> o <code>idm</code>),
+      <code>OPENAI_IMAGE_MODEL</code>, <code>CLAUDE_MODEL</code> y <code>MAX_REVISIONS</code>. Reinicia <code>npm start</code> tras cambiarlos.
     </div></div>
     <div class="settings client-only">
       <label>Token de Hugging Face (opcional, recomendado: más cuota ZeroGPU y prioridad en cola)
@@ -328,7 +342,7 @@
 // ================================================================
 // Demo configuration
 // ================================================================
-const AGENT_MODE = true; // true only in agentic.html: generation goes through server.mjs (Claude + IDM-VTON)
+const AGENT_MODE = true; // true only in agentic.html: generation goes through server.mjs (Claude workflow)
 const GARMENT_URL_ENABLED = true; // set by build.mjs: false for index.html, true for custom-garment.html
 const GARMENT_TYPE = "upper_body"; // the IDM-VTON Space auto-masks the upper body only
 const EMBEDDED_GARMENT = {
@@ -406,7 +420,7 @@ const els = {
   btnDownload: $("btnDownload"), btnCamera: $("btnCamera"), btnOpenSettings: $("btnOpenSettings"), settingsBox: $("settingsBox"), setFalKey: $("setFalKey"),
   garmentBar: $("garmentBar"), garmentUrl: $("garmentUrl"), garmentDesc: $("garmentDesc"), btnLoadGarment: $("btnLoadGarment"),
   btnSampleGarment: $("btnSampleGarment"), garmentImg: $("garmentImg"), garmentCaption: $("garmentCaption"),
-  agentSteps: $("agentSteps"), subtitle: $("subtitle"), graphSvg: $("graphSvg"), graphTrace: $("graphTrace"), graphState: $("graphState"), graphBox: $("graphBox"),
+  agentSteps: $("agentSteps"), subtitle: $("subtitle"), graphSvg: $("graphSvg"), graphTrace: $("graphTrace"), graphState: $("graphState"), tryonTab: $("tryonTab"), graphTab: $("graphTab"), graphTabBtn: document.querySelector('[data-tab="graph"]'),
 };
 
 const logLines = [];
@@ -835,7 +849,7 @@ function drawGraph() {
   }
   for (const n of g.nodes) {
     const [x, y] = GRAPH_LAYOUT[n.id] || [0, 0], [w, h] = nodeSize(n);
-    const kind = { llm: "Claude", tool: "IDM-VTON", code: "código" }[n.kind] || "";
+    const kind = { llm: "Claude", tool: n.engine || "generador", code: "código" }[n.kind] || "";
     svg += `<g class="gnode ${n.kind}" id="gn-${n.id}" data-node="${n.id}"><title>${esc(n.desc || n.label)}</title>` +
       `<rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="${n.kind === "terminal" ? h / 2 : 8}"/>` +
       (kind ? `<text x="${x}" y="${y - 7}">${esc(n.label)}</text><text class="kind" x="${x}" y="${y + 9}">${kind}</text>` : `<text x="${x}" y="${y}">${esc(n.label)}</text>`) +
@@ -859,6 +873,11 @@ function showNodeState(id, pinned = true) { // pinned = clicked by the user: sto
   }
   const d = graph.data[id];
   els.graphState.textContent = d ? `${id}${d.attempt ? " · intento " + d.attempt : ""} · ${d.status}${d.ms != null ? ` · ${(d.ms / 1000).toFixed(1)} s` : ""}\n` + JSON.stringify(d.data ?? d.error ?? null, null, 2) : `${id}: aún no se ejecuta`;
+}
+function setTab(name) {
+  els.tryonTab.hidden = name !== "tryon"; els.graphTab.hidden = name !== "graph";
+  document.querySelectorAll("#tabs .tab").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  if (name === "tryon") requestAnimationFrame(layoutGuide);
 }
 function resetSteps() {
   graph.visits = {}; graph.data = {}; graph.t0 = performance.now(); graph.lastEdge = null; graph.selected = null;
@@ -896,7 +915,7 @@ function onAgentEvent(e, ctl) {
     if (e.status === "running" && e.node !== "gate" && e.node !== "decide" && e.node !== "revise") ctl.phase(e.label + "…");
     if (e.node === "evaluate" && e.status === "done") setVerdict(`Claude: ${e.data.feedback}`);
   } else if (e.type === "edge") { graphEdge(e); log(`edge ${e.from} -> ${e.to}${e.label ? ` (${e.label})` : ""}`); }
-  else if (e.type === "status") { ctl.phase(`IDM-VTON · ${e.text}`); trace("", `  · ${e.node}: ${e.text}`); }
+  else if (e.type === "status") { ctl.phase(`${app.generator || "Generador"} · ${e.text}`); trace("", `  · ${e.node}: ${e.text}`); }
   else if (e.type === "error") throw Object.assign(new Error(e.message), { hint: e.hint });
   else if (e.type === "result") return e;
 }
@@ -906,8 +925,8 @@ async function agentGenerate() {
   if (currentGarment.pending) { setStatus("busy", "Esperando a que cargue la prenda…"); if (!(await currentGarment.pending)) return; }
   const ac = new AbortController(); app.abort = ac;
   let lastPhase = "";
-  const ctl = { phase: (t) => { setStatus("busy", t, "Claude + IDM-VTON"); els.afterBusyText.textContent = t; if (t !== lastPhase) lastPhase = t; } };
-  setState("generating"); startTimer(); resetSteps();
+  const ctl = { phase: (t) => { setStatus("busy", t, `Claude + ${app.generator || "generador"}`); els.afterBusyText.textContent = t; if (t !== lastPhase) lastPhase = t; } };
+  setState("generating"); startTimer(); resetSteps(); els.graphTabBtn.classList.add("running");
   const body = { photo: app.photoDataUrl, hint: GARMENT_URL_ENABLED ? (els.garmentDesc.value || "").trim() : "" };
   if (currentGarment.dataUrl) body.garment = currentGarment.dataUrl; else body.garmentUrl = currentGarment.url;
   let result = null;
@@ -927,15 +946,17 @@ async function agentGenerate() {
     }
     if (!result) throw new Error("El servidor cerró la conexión sin resultado");
   } catch (e) {
+    els.graphTabBtn.classList.remove("running");
     if (ac.signal.aborted || e?.name === "AbortError") { log("generación cancelada"); return; }
     stopTimer(); app.abort = null; setState("error-gen"); setStatus("err", "No se pudo generar");
     const offline = /Failed to fetch|NetworkError/i.test(e.message);
     showError(offline ? "No hay conexión con server.mjs." : e.message, offline ? "Arranca el servidor con npm start y recarga." : (e.hint || "Pulsa Generar para reintentar, o Repetir foto."));
     return;
   }
-  stopTimer(); app.abort = null;
+  stopTimer(); app.abort = null; els.graphTabBtn.classList.remove("running");
   const secs = ((performance.now() - app.t0) / 1000).toFixed(1);
-  const cost = `US$ ${result.usage.usd.toFixed(3)} en Claude (${result.usage.calls} llamadas)`;
+  const img = result.usage.images;
+  const cost = `US$ ${result.usage.usd.toFixed(3)} en Claude (${result.usage.calls} llamadas)` + (img?.output_tokens ? ` · ${img.generator}: ${img.calls} imagen(es), ${img.input_tokens + img.output_tokens} tokens` : "");
   log(`resultado: ${result.status} · ${secs} s · ${cost}${result.stopReason ? " · " + result.stopReason : ""}`);
   if (result.status === "rejected") {
     setState("error-gen"); setStatus("warn", "Claude detuvo el flujo antes de generar", `${secs} s · ${cost}`);
@@ -982,6 +1003,8 @@ async function checkServer() {
   try {
     const h = await withTimeout(fetch("/api/health").then((r) => r.json()), 5000, "server.mjs");
     pill("claude", h.ok ? `Claude: ${h.model}` : "Claude: falta ANTHROPIC_API_KEY", h.ok ? "ok" : "err");
+    app.generator = h.generator; pill("gen", `Imagen: ${h.generator}`, "ok");
+    els.subtitle.textContent = `flujo agéntico · Claude + ${h.generator}`;
     pill("rev", `Revisiones máx.: ${h.maxRevisions}`, "ok");
     if (!h.ok) showError("El servidor no tiene ANTHROPIC_API_KEY.", "Pégala en open-source-tryon/.env y reinicia npm start.");
   } catch (e) { pill("claude", "server.mjs: sin respuesta", "err"); showError("No hay conexión con server.mjs.", "Arranca el servidor con npm start y recarga."); }
@@ -1035,7 +1058,7 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "r" || e.key === "R") { if (app.photoBlob) retake(); }
   else if (e.key === "d" || e.key === "D") { if (app.state === "done") download(); }
   else if (e.key === "Escape") { if (app.state === "generating") cancelGeneration(); }
-  else if ((e.key === "g" || e.key === "G") && AGENT_MODE) { els.graphBox.open = !els.graphBox.open; requestAnimationFrame(layoutGuide); }
+  else if ((e.key === "g" || e.key === "G") && AGENT_MODE) setTab(els.graphTab.hidden ? "graph" : "tryon");
 });
 window.addEventListener("error", (e) => showError("Error inesperado: " + (e.message || e.error?.message || "?"), "Mira el registro en Ajustes."));
 window.addEventListener("unhandledrejection", (e) => showError("Error inesperado: " + (e.reason?.message || e.reason || "?"), "Mira el registro en Ajustes."));
@@ -1045,12 +1068,13 @@ window.addEventListener("unhandledrejection", (e) => showError("Error inesperado
 // ================================================================
 if (AGENT_MODE) {
   document.body.classList.add("agent");
-  els.subtitle.textContent = "flujo agéntico · Claude + IDM-VTON";
+  els.subtitle.textContent = "flujo agéntico · Claude";
   document.title = "Probador virtual · agéntico";
   els.settingsBox.querySelector("summary").textContent = "Ajustes y registro (claves en .env, diagnóstico)";
   els.garmentDesc.placeholder = "opcional: Claude la escribe";
   els.garmentDesc.closest("label").firstChild.textContent = "Pista para Claude (opcional)";
   loadGraph();
+  document.getElementById("tabs").addEventListener("click", (e) => { const b = e.target.closest(".tab"); if (b) setTab(b.dataset.tab); });
   els.graphSvg.addEventListener("click", (e) => { const n = e.target.closest(".gnode"); if (n) showNodeState(n.dataset.node); });
 }
 if (!AGENT_MODE && !window.__gradio?.Client) {

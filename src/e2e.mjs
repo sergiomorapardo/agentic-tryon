@@ -104,6 +104,12 @@ try {
     console.log("3) final:", final);
     await new Promise((r) => setTimeout(r, 800));
     await shot("03-final");
+    if (await evalJs("!!document.querySelector('[data-tab=graph]') && !document.getElementById('tabs').closest('[hidden]') && document.body.classList.contains('agent')")) {
+      await evalJs("document.querySelector('[data-tab=graph]').click()"); await new Promise((r) => setTimeout(r, 400));
+      await shot("04-graph-tab");
+      console.log("   traza del grafo:\n" + (await text("graphTrace")));
+      await evalJs("document.querySelector('[data-tab=tryon]').click()");
+    }
     if (final === "done") {
       const rb = await evalJs("(async()=>{const u=new Uint8Array(await window.__vton.resultBlob.arrayBuffer());let s='';for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(s)})()");
       fs.writeFileSync(`${OUT}/result.png`, Buffer.from(rb, "base64"));

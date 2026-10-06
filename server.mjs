@@ -2,9 +2,8 @@
 // Usage: npm start  (then open http://localhost:3000). Keys never reach the browser.
 import http from "node:http";
 import fs from "node:fs";
-import { runTryOnWorkflow, sniffMediaType, GRAPH, MODEL, MAX_REVISIONS } from "./agent/workflow.mjs";
+import { runTryOnWorkflow, sniffMediaType, GRAPH, GENERATOR, MODEL, MAX_REVISIONS } from "./agent/workflow.mjs";
 
-try { process.loadEnvFile(new URL("./.env", import.meta.url)); } catch { /* no .env: rely on the environment */ }
 const PORT = Number(process.env.PORT || 3000);
 const PAGE = new URL("./agentic.html", import.meta.url);
 const MAX_BODY = 20 * 1024 * 1024;
@@ -45,6 +44,7 @@ function friendly(e) {
     const wait = m.match(/Try again in ([\d:]+)/)?.[1];
     return { message: "Cuota gratuita de ZeroGPU agotada para esta IP" + (wait ? ` (se renueva en ${wait})` : "") + ".", hint: "Cambia de red (hotspot del móvil = IP nueva) o pon HF_TOKEN en .env." };
   }
+  if (/^OpenAI/.test(m)) return { message: m, hint: e.status === 401 ? "Revisa OPENAI_API_KEY en .env y reinicia el servidor." : e.code === "moderation_blocked" ? "OpenAI bloqueó la imagen por moderación. Prueba otra foto o prenda." : "Reintenta; si persiste, usa GENERATOR=idm en .env." };
   if (e?.status === 401) return { message: "La clave de Anthropic no es válida.", hint: "Revisa ANTHROPIC_API_KEY en .env y reinicia el servidor." };
   if (e?.status === 429) return { message: "Límite de peticiones de la API de Anthropic.", hint: "Espera unos segundos y reintenta." };
   return { message: m, hint: "" };
@@ -60,7 +60,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === "GET" && url.pathname === "/api/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: !!process.env.ANTHROPIC_API_KEY, model: MODEL, maxRevisions: MAX_REVISIONS }));
+    res.end(JSON.stringify({ ok: !!process.env.ANTHROPIC_API_KEY, model: MODEL, generator: GENERATOR.label, maxRevisions: MAX_REVISIONS }));
     return;
   }
   if (req.method === "GET" && url.pathname === "/api/graph") {
@@ -93,4 +93,4 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (!process.env.ANTHROPIC_API_KEY) console.warn("WARNING: ANTHROPIC_API_KEY is not set (.env)");
-server.listen(PORT, "127.0.0.1", () => console.log(`Agentic try-on on http://localhost:${PORT} · model ${MODEL} · max revisions ${MAX_REVISIONS}${MOCK ? ` · IDM MOCK: ${MOCK.join(", ")}` : ""}`));
+server.listen(PORT, "127.0.0.1", () => console.log(`Agentic try-on on http://localhost:${PORT} · model ${MODEL} · generator ${GENERATOR.label} · max revisions ${MAX_REVISIONS}${MOCK ? ` · IDM MOCK: ${MOCK.join(", ")}` : ""}`));
