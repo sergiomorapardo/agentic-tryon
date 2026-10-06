@@ -1,4 +1,5 @@
-// Assembles ../index.html (embedded garment only) and ../custom-garment.html (garment from a URL) from template.html,
+// Assembles ../index.html (embedded garment only), ../custom-garment.html (garment from a URL) and ../agentic.html
+// (served by server.mjs, Claude workflow) from template.html,
 // the Gradio client bundle and the garment image.
 // Usage: node build.mjs   (only needed to regenerate the HTML files; they depend on nothing at runtime)
 import fs from "node:fs";
@@ -28,16 +29,19 @@ const garmentDataUrl = `data:image/jpeg;base64,${read("garment.jpg").toString("b
 const template = read("template.html").toString("utf8");
 
 const OUTPUTS = [
-  { file: "index.html", garmentUrl: false },
-  { file: "custom-garment.html", garmentUrl: true },
+  { file: "index.html", garmentUrl: false, agent: false },
+  { file: "custom-garment.html", garmentUrl: true, agent: false },
+  // Served by server.mjs: generation runs server-side (Claude workflow), so the Gradio bundle is not inlined.
+  { file: "agentic.html", garmentUrl: true, agent: true },
 ];
-for (const { file, garmentUrl } of OUTPUTS) {
+for (const { file, garmentUrl, agent } of OUTPUTS) {
   let html = template;
   const replaceOnce = (needle, value) => {
     if (!html.includes(needle)) throw new Error(`Missing placeholder: ${needle}`);
     html = html.split(needle).join(value);
   };
-  replaceOnce("/*__GRADIO_CLIENT__*/", bundle);
+  replaceOnce("/*__GRADIO_CLIENT__*/", agent ? "" : bundle);
+  replaceOnce("__AGENT_MODE__", String(agent));
   replaceOnce("__GARMENT_DATA_URL__", garmentDataUrl);
   replaceOnce("__GARMENT_URL_ENABLED__", String(garmentUrl));
   const out = path.join(here, "..", file);

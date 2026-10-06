@@ -1,0 +1,17 @@
+{
+  "name": "open-source-tryon",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node src/build.mjs",
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@gradio/client": "2.6.0",
+    "zod": "^4.6.5"
+  }
+}

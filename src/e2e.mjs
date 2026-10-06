@@ -1,5 +1,5 @@
 // End-to-end test in headless Chrome with a fake camera, driven through the Chrome DevTools Protocol (no deps: Node >= 22 + Chrome).
-// Usage: node src/e2e.mjs index.html photo.mjpeg [--skip-generate] [--deny-camera] [--order=leffa] [--garment-url=https://…]
+// Usage: node src/e2e.mjs index.html|http://localhost:3000 photo.mjpeg [--skip-generate] [--deny-camera] [--order=leffa] [--garment-url=https://…]
 //   photo.mjpeg = any half-body JPEG renamed to .mjpeg (Chrome plays it as the fake camera).
 //   WIN=1280,720 forces the window size; OUT=/path changes where screenshots and the result go (default ./e2e-out).
 import { spawn } from "node:child_process";
@@ -15,7 +15,7 @@ const PROFILE = OUT + "/chrome-profile";
 const skipGenerate = process.argv.includes("--skip-generate");
 const denyCamera = process.argv.includes("--deny-camera");
 const orderArg = (process.argv.find((a) => a.startsWith("--order=")) || "").slice(8);
-const fileUrl = "file://" + (htmlPath.startsWith("/") ? htmlPath : process.cwd() + "/" + htmlPath);
+const fileUrl = /^https?:\/\//.test(htmlPath) ? htmlPath : "file://" + (htmlPath.startsWith("/") ? htmlPath : process.cwd() + "/" + htmlPath);
 fs.rmSync(PROFILE, { recursive: true, force: true });
 
 const chrome = spawn(CHROME, [
@@ -64,6 +64,8 @@ const dumpUi = async () => {
   console.log("status:", (await text("statusText")) + " | " + (await text("statusDetail")) + " | timer=" + (await text("timer")));
   console.log("error:", (await text("errorText")) + " " + (await text("errorHint")));
   console.log("botones visibles:", await evalJs("[...document.querySelectorAll('button')].filter(b=>!b.hidden).map(b=>b.id+(b.disabled?'(off)':'')).join(',')"));
+  console.log("pasos:", await evalJs("document.getElementById('agentSteps') ? document.getElementById('agentSteps').innerText.replace(/\\n/g, ' | ') : ''"));
+  console.log("pie del resultado:", await text("afterCaption"));
   console.log("pills:", await evalJs("[...document.querySelectorAll('.pill')].map(p=>p.className+': '+p.textContent).join(' || ')"));
 };
 

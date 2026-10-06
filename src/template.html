@@ -157,6 +157,19 @@
     margin: 0; padding: 12px 18px; max-height: 120px; overflow: auto; font: 13px/1.45 ui-monospace, Menlo, monospace;
     color: var(--muted); white-space: pre-wrap; border-top: 1px solid var(--line);
   }
+  /* Agentic mode (agentic.html, served by server.mjs) */
+  body:not(.agent) .agent-only, body.agent .client-only { display: none !important; }
+  .agentsteps { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 15px; color: var(--muted); }
+  .agentsteps .group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .agentsteps .group > b { font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-size: 12px; }
+  .step { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); }
+  .step::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .step.running::before { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  .step.done::before { background: var(--ok); }
+  .step.failed::before { background: var(--err); }
+  .step.warn::before { background: var(--warn); }
+  .step small { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .verdict { flex-basis: 100%; color: var(--fg); font-size: 16px; }
   @media (max-width: 1100px) {
     .stage { grid-template-columns: 1fr 1fr; }
     .panel.garment { grid-column: 1 / -1; flex-direction: row; max-height: 160px; }
@@ -165,7 +178,7 @@
 </head>
 <body>
 <header>
-  <h1>Probador virtual <small>modelo open source · IDM-VTON</small></h1>
+  <h1>Probador virtual <small id="subtitle">modelo open source · IDM-VTON</small></h1>
   <div class="pills" id="pills"></div>
 </header>
 
@@ -215,6 +228,8 @@
     <div class="detail" id="statusDetail"></div>
   </div>
 
+  <div class="agentsteps agent-only" id="agentSteps"></div>
+
   <div class="errorbox" id="errorbox"><strong>Error.</strong> <span id="errorText"></span><div class="hint" id="errorHint"></div>
     <button id="btnOpenSettings" class="small" hidden style="margin-top:12px">Abrir ajustes y pegar la clave de fal.ai</button></div>
 
@@ -232,7 +247,11 @@
 <footer>
   <details id="settingsBox">
     <summary>Ajustes y registro (token HF, respaldo, pasos, diagnóstico)</summary>
-    <div class="settings">
+    <div class="settings agent-only"><div class="note">
+      Modo agéntico: las claves viven en <code>open-source-tryon/.env</code> (<code>ANTHROPIC_API_KEY</code>, opcional <code>HF_TOKEN</code>) y solo las lee
+      <code>server.mjs</code>; nunca llegan al navegador. Modelo, revisiones máximas y Space se configuran ahí (<code>CLAUDE_MODEL</code>, <code>MAX_REVISIONS</code>, <code>IDM_SPACE</code>).
+    </div></div>
+    <div class="settings client-only">
       <label>Token de Hugging Face (opcional, recomendado: más cuota ZeroGPU y prioridad en cola)
         <input id="setHfToken" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false">
       </label>
@@ -284,6 +303,7 @@
 // ================================================================
 // Demo configuration
 // ================================================================
+const AGENT_MODE = __AGENT_MODE__; // true only in agentic.html: generation goes through server.mjs (Claude + IDM-VTON)
 const GARMENT_URL_ENABLED = __GARMENT_URL_ENABLED__; // set by build.mjs: false for index.html, true for custom-garment.html
 const GARMENT_TYPE = "upper_body"; // the IDM-VTON Space auto-masks the upper body only
 const EMBEDDED_GARMENT = {
@@ -361,6 +381,7 @@ const els = {
   btnDownload: $("btnDownload"), btnCamera: $("btnCamera"), btnOpenSettings: $("btnOpenSettings"), settingsBox: $("settingsBox"), setFalKey: $("setFalKey"),
   garmentBar: $("garmentBar"), garmentUrl: $("garmentUrl"), garmentDesc: $("garmentDesc"), btnLoadGarment: $("btnLoadGarment"),
   btnSampleGarment: $("btnSampleGarment"), garmentImg: $("garmentImg"), garmentCaption: $("garmentCaption"),
+  agentSteps: $("agentSteps"), subtitle: $("subtitle"),
 };
 
 const logLines = [];
@@ -708,6 +729,7 @@ function friendlyError(e) {
 }
 
 async function generate() {
+  if (AGENT_MODE) return agentGenerate();
   if (!app.photoBlob || app.state === "generating") return;
   clearError();
   if (currentGarment.pending) { setStatus("busy", "Esperando a que cargue la prenda…"); if (!(await currentGarment.pending)) return; }
@@ -755,6 +777,97 @@ async function generate() {
   }
 }
 
+// ================================================================
+// Agentic generation (agentic.html): server.mjs runs the Claude workflow and streams NDJSON events
+// ================================================================
+const STEP_GROUPS = { photo_check: "par", garment_analysis: "par" };
+function resetSteps() {
+  els.agentSteps.innerHTML = '<span class="group" id="grp-par"><b>Paralelo</b></span><span class="group" id="grp-eo"><b>Evaluador-optimizador</b></span>';
+}
+function renderStep(e) {
+  let chip = document.getElementById("step-" + e.id);
+  if (!chip) {
+    chip = document.createElement("span"); chip.id = "step-" + e.id;
+    document.getElementById(STEP_GROUPS[e.id] === "par" ? "grp-par" : "grp-eo").appendChild(chip);
+  }
+  chip.className = "step " + e.status;
+  chip.textContent = e.label;
+  if (e.ms != null) { const s = document.createElement("small"); s.textContent = `${(e.ms / 1000).toFixed(1)} s`; chip.appendChild(s); }
+}
+function setVerdict(text) {
+  let v = document.getElementById("verdict");
+  if (!v) { v = document.createElement("span"); v.id = "verdict"; v.className = "verdict"; els.agentSteps.appendChild(v); }
+  v.textContent = text;
+}
+function onAgentEvent(e, ctl) {
+  if (e.type === "step") {
+    renderStep(e);
+    log(`${e.label}: ${e.status}${e.ms != null ? ` (${(e.ms / 1000).toFixed(1)} s)` : ""}${e.data ? " " + JSON.stringify(e.data) : ""}${e.error ? " · " + e.error : ""}`);
+    if (e.status === "running") ctl.phase(e.label + "…");
+    if (e.id.startsWith("evaluate_") && e.status === "done") {
+      const d = e.data; setVerdict(`Claude: ${d.feedback}`);
+      const chip = document.getElementById("step-" + e.id);
+      if ([d.garment_fidelity, d.identity_preserved, d.realism].some((x) => x < 4)) chip.className = "step warn";
+    }
+  } else if (e.type === "status") ctl.phase(`${document.getElementById("step-" + e.id)?.firstChild?.textContent || "Generando"} · ${e.text}`);
+  else if (e.type === "revision") log(`revisión ${e.n}: ${JSON.stringify(e.params)}`);
+  else if (e.type === "error") throw Object.assign(new Error(e.message), { hint: e.hint });
+  else if (e.type === "result") return e;
+}
+async function agentGenerate() {
+  if (!app.photoBlob || app.state === "generating") return;
+  clearError();
+  if (currentGarment.pending) { setStatus("busy", "Esperando a que cargue la prenda…"); if (!(await currentGarment.pending)) return; }
+  const ac = new AbortController(); app.abort = ac;
+  let lastPhase = "";
+  const ctl = { phase: (t) => { setStatus("busy", t, "Claude + IDM-VTON"); els.afterBusyText.textContent = t; if (t !== lastPhase) lastPhase = t; } };
+  setState("generating"); startTimer(); resetSteps();
+  const body = { photo: app.photoDataUrl, hint: GARMENT_URL_ENABLED ? (els.garmentDesc.value || "").trim() : "" };
+  if (currentGarment.dataUrl) body.garment = currentGarment.dataUrl; else body.garmentUrl = currentGarment.url;
+  let result = null;
+  try {
+    const r = await fetch("/api/tryon", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac.signal });
+    if (!r.ok) throw new Error(`El servidor respondió HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      for (let i; (i = buf.indexOf("\n")) >= 0;) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        if (line.trim()) result = onAgentEvent(JSON.parse(line), ctl) || result;
+      }
+    }
+    if (!result) throw new Error("El servidor cerró la conexión sin resultado");
+  } catch (e) {
+    if (ac.signal.aborted || e?.name === "AbortError") { log("generación cancelada"); return; }
+    stopTimer(); app.abort = null; setState("error-gen"); setStatus("err", "No se pudo generar");
+    const offline = /Failed to fetch|NetworkError/i.test(e.message);
+    showError(offline ? "No hay conexión con server.mjs." : e.message, offline ? "Arranca el servidor con npm start y recarga." : (e.hint || "Pulsa Generar para reintentar, o Repetir foto."));
+    return;
+  }
+  stopTimer(); app.abort = null;
+  const secs = ((performance.now() - app.t0) / 1000).toFixed(1);
+  const cost = `US$ ${result.usage.usd.toFixed(3)} en Claude (${result.usage.calls} llamadas)`;
+  log(`resultado: ${result.status} · ${secs} s · ${cost}${result.stopReason ? " · " + result.stopReason : ""}`);
+  if (result.status === "rejected") {
+    setState("error-gen"); setStatus("warn", "Claude detuvo el flujo antes de generar", `${secs} s · ${cost}`);
+    setVerdict(""); showError(result.reasons.join(" "), "No se gastó cuota de GPU. Repite la foto o cambia la prenda.");
+    return;
+  }
+  const best = result.attempts.find((a) => a.n === result.best);
+  app.resultBlob = dataUrlToBlob(result.image);
+  if (app.resultUrl) URL.revokeObjectURL(app.resultUrl);
+  app.resultUrl = URL.createObjectURL(app.resultBlob);
+  els.after.src = app.resultUrl;
+  els.afterCaption.textContent = `intento ${best.n} · prenda ${best.scores.garment_fidelity}/5 · identidad ${best.scores.identity_preserved}/5 · realismo ${best.scores.realism}/5`;
+  setVerdict(`Claude: ${best.feedback}${best.passed ? "" : " · Criterios incumplidos: " + best.failed_criteria.join("; ")}`);
+  setState("done");
+  setStatus(best.passed ? "ok" : "warn", best.passed ? "Listo · aprobado por Claude" : "Mejor intento, sin aprobar la rúbrica",
+    `${secs} s · ${result.attempts.length} generación(es) · ${cost}`);
+}
+
 function cancelGeneration(reason = "Cancelado") {
   if (app.abort) { app.abort.abort(); app.abort = null; }
   stopTimer();
@@ -778,7 +891,17 @@ function pill(id, text, kind = "") {
   if (!el) { el = document.createElement("span"); el.id = "pill-" + id; el.className = "pill"; els.pills.appendChild(el); }
   el.className = "pill " + kind; el.textContent = text;
 }
+async function checkServer() {
+  pill("net", navigator.onLine ? "Red: en línea" : "Red: SIN CONEXIÓN", navigator.onLine ? "ok" : "err");
+  try {
+    const h = await withTimeout(fetch("/api/health").then((r) => r.json()), 5000, "server.mjs");
+    pill("claude", h.ok ? `Claude: ${h.model}` : "Claude: falta ANTHROPIC_API_KEY", h.ok ? "ok" : "err");
+    pill("rev", `Revisiones máx.: ${h.maxRevisions}`, "ok");
+    if (!h.ok) showError("El servidor no tiene ANTHROPIC_API_KEY.", "Pégala en open-source-tryon/.env y reinicia npm start.");
+  } catch (e) { pill("claude", "server.mjs: sin respuesta", "err"); showError("No hay conexión con server.mjs.", "Arranca el servidor con npm start y recarga."); }
+}
 async function checkBackends() {
+  if (AGENT_MODE) return checkServer();
   pill("net", navigator.onLine ? "Red: en línea" : "Red: SIN CONEXIÓN", navigator.onLine ? "ok" : "err");
   for (const id of settings.order) {
     const b = BACKENDS[id]; if (!b) continue;
@@ -833,7 +956,15 @@ window.addEventListener("unhandledrejection", (e) => showError("Error inesperado
 // ================================================================
 // Startup
 // ================================================================
-if (!window.__gradio?.Client) {
+if (AGENT_MODE) {
+  document.body.classList.add("agent");
+  els.subtitle.textContent = "flujo agéntico · Claude + IDM-VTON";
+  document.title = "Probador virtual · agéntico";
+  els.settingsBox.querySelector("summary").textContent = "Ajustes y registro (claves en .env, diagnóstico)";
+  els.garmentDesc.placeholder = "opcional: Claude la escribe";
+  els.garmentDesc.closest("label").firstChild.textContent = "Pista para Claude (opcional)";
+}
+if (!AGENT_MODE && !window.__gradio?.Client) {
   setStatus("err", "No se cargó el cliente de Gradio"); showError("El cliente incrustado no se inicializó.", "El archivo HTML puede estar corrupto; regénéralo con src/build.mjs.");
 } else {
   log(`inicio · ${location.protocol} · secureContext=${window.isSecureContext} · ${navigator.userAgent.split(") ")[0]})`);

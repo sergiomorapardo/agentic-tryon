@@ -99,14 +99,78 @@ Supuestos / no verificado:
 Ensayo recomendado 1-2 días antes, desde el hotspot: una generación completa, comprobar descarga y guardar una captura de pantalla
 del resultado como plan C (mostrarla si todo falla).
 
+## Variante agéntica: `agentic.html` + `server.mjs` (Claude + IDM-VTON)
+
+Misma interfaz, pero la generación pasa por un servidor local que orquesta a Claude (SDK oficial `@anthropic-ai/sdk`,
+modelo `claude-opus-5`) alrededor de IDM-VTON. **Claude no genera imágenes** (la API solo devuelve texto), así que la imagen
+la sigue produciendo IDM-VTON en el Space gratuito; Claude decide si vale la pena generar, escribe la descripción de la
+prenda, califica el resultado y propone la revisión. Solo hace falta la clave de Anthropic.
+
+```bash
+cd open-source-tryon
+npm install                 # una vez: @anthropic-ai/sdk, zod, @gradio/client 2.6.0 (solo para el servidor)
+nano .env                   # ANTHROPIC_API_KEY=sk-ant-…  (opcional: HF_TOKEN, CLAUDE_MODEL, MAX_REVISIONS, IDM_SPACE)
+npm start                   # http://localhost:3000  (la cámara funciona porque localhost es contexto seguro)
+```
+
+`.env` está en `.gitignore` y solo lo lee `server.mjs`: las claves nunca llegan al navegador. A diferencia del resto del
+repo, esta carpeta sí usa dependencias npm, pero únicamente en el servidor; la página sigue sin build ni CDN.
+
+### Patrones (según «Building effective agents» de Anthropic y la guía de workflows de LangGraph)
+
+Es un **workflow**: la estructura está fija en código (`agent/workflow.mjs`) y Claude toma decisiones dentro de ella.
+No se usó un agente libre con herramientas porque los pasos se conocen de antemano y cada generación gasta cuota escasa
+de ZeroGPU: dejar que el modelo decida cuántas veces generar podría agotarla en una sola corrida.
+
+1. **Paralelización (sectioning)**: dos ramas fijas en paralelo, ambas esperadas antes de decidir: Claude revisa la foto
+   (¿una persona, de frente, con cabeza y torso?) y analiza la prenda (categoría, descripción para el prompt de IDM-VTON,
+   rasgos clave). Compuerta: si la foto no sirve o la prenda no es de torso, se detiene **sin gastar GPU**.
+2. **Evaluator-optimizer**: IDM-VTON genera; Claude califica con una rúbrica de 1 a 5 (fidelidad de la prenda, identidad
+   preservada, realismo) y propone descripción, auto-crop y pasos para el siguiente intento. Aprueba si los tres criterios
+   llegan a 4. Máximo `MAX_REVISIONS` revisiones (1 por defecto, por la cuota). Si ninguna aprueba, se entrega el mejor
+   intento (mayor puntaje mínimo) **con los criterios incumplidos visibles**: llegar al límite no lo convierte en aprobado.
+
+Todo queda visible en la página: los pasos en grupos «Paralelo» y «Evaluador-optimizador» con su duración, el veredicto de
+Claude, los puntajes del intento entregado y el costo en Claude de la corrida.
+
+### Medido el 5-oct-2026
+
+| Caso | Tiempo total | Llamadas a Claude | Costo Claude |
+| --- | --- | --- | --- |
+| Foto no apta (compuerta) | ~3 s | 2 | ~US$ 0,02 (0 s de GPU) |
+| Generación real aprobada al primer intento (CLI) | 25 s (15 s de IDM-VTON) | 3 | ~US$ 0,045 |
+| Con una revisión (generador simulado) | 18-23 s + GPU | 4 | ~US$ 0,075 |
+
+Impacto frente a la versión sin Claude: añade ~3 s y ~US$ 0,02 antes de generar y ~6-7 s y ~US$ 0,025 por evaluación.
+A cambio, una foto mala no consume los 60-90 s de cuota ZeroGPU que reserva cada llamada (≈ 4-5 generaciones al día por IP),
+y el resultado sale con un veredicto explicable. Lo que no se ha medido: si la revisión propuesta por Claude mejora de
+verdad el resultado de IDM-VTON en casos que fallan (la prueba de revisión usó un generador simulado).
+
+### Pruebas
+
+- `node agent/run.mjs persona.jpg prenda.jpg` corre el workflow sin navegador (genera de verdad).
+- `IDM_MOCK=a.png,b.png npm start` sustituye IDM-VTON por esas imágenes, en orden, para probar la interfaz y el ciclo de
+  revisión sin gastar cuota (por ejemplo, la foto original primero para forzar el rechazo, luego un resultado real).
+- `node src/e2e.mjs http://localhost:3000 foto.mjpeg` hace el recorrido completo en Chrome headless con cámara falsa.
+  La cámara falsa entrega 16:9 y recorta arriba y abajo: centra la foto en un lienzo 16:9
+  (`sips --padToHeightWidth 1024 1820 --padColor FFFFFF foto.jpg --out foto.jpg`) o Claude la rechazará, con razón, por
+  la cabeza cortada.
+- Verificado el 5-oct-2026: compuerta (foto sin persona y cabeza cortada), generación real aprobada, revisión que pasa de
+  1/5 a aprobada, revisión que termina sin aprobar, cuota agotada (mensaje con la hora de renovación) y regresión de
+  `index.html` y `custom-garment.html` en `file://`. Foto de prueba: ejemplo `00034_00.jpg` del Space de IDM-VTON.
+
 ## Estructura
 
 - `index.html` — entregable final, autocontenido, prenda incrustada.
 - `custom-garment.html` — igual, más la barra de prenda por enlace.
-- `src/template.html` — plantilla legible (CSS + app JS) con dos placeholders.
+- `src/template.html` — plantilla legible (CSS + app JS) con tres placeholders.
 - `src/gradio-client-2.6.0.min.js` — bundle oficial de `@gradio/client` descargado de jsDelivr.
 - `src/garment.jpg` — prenda de la demo.
-- `src/build.mjs` — ensambla los dos HTML (`node src/build.mjs`, Node ≥ 18). Solo hace falta para regenerarlos.
+- `src/build.mjs` — ensambla los tres HTML (`node src/build.mjs`, Node ≥ 18). Solo hace falta para regenerarlos.
+- `agentic.html` — variante agéntica; la sirve `server.mjs`, sin el cliente de Gradio incrustado.
+- `server.mjs` — servidor local: página, `/api/health` y `/api/tryon` (eventos NDJSON en streaming).
+- `agent/workflow.mjs` — workflow con Claude (paralelización + evaluator-optimizer); `agent/idm.mjs` — IDM-VTON desde Node;
+  `agent/run.mjs` — CLI del workflow.
 - `src/e2e.mjs` — prueba automática en Chrome headless con cámara falsa (sin dependencias). Sirve para ensayar sin gastar
   la cámara ni tocar la pantalla: `cp foto.jpg foto.mjpeg && node src/e2e.mjs index.html foto.mjpeg`
   (`--skip-generate` no gasta cuota; `--deny-camera` y `--order=leffa` prueban las pantallas de error). Deja capturas y
