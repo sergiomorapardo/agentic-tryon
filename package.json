@@ -1,10 +1,11 @@
 {
-  "name": "open-source-tryon",
+  "name": "agentic-tryon",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node src/build.mjs",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test:e2e": "node src/e2e.mjs http://localhost:3000"
   },
   "engines": {
     "node": ">=22"

@@ -1,10 +1,18 @@
-# Probador virtual · variante open source en un solo HTML
+# Agentic try-on · probador virtual con Claude
 
-Construida a partir de `prompts/virtual-tryon-open-source.md`. `index.html` es el entregable: un archivo autocontenido (167 KB) que abre la cámara del MacBook,
-captura una foto, la manda a un modelo open source de virtual try-on y muestra el antes y el después.
-No hay build, npm, backend ni servidor local. La prenda (una polo bicolor) va incrustada en base64.
+Probador virtual con cámara: captura una foto, viste a la persona con una prenda y muestra el antes y el después.
+Dos formas de usarlo:
 
-## Cómo correrlo
+- **Agéntica (`npm start`)**: un workflow con Claude (SDK de Anthropic) revisa la foto y la prenda en paralelo, manda a
+  generar la imagen a OpenAI `gpt-image-2` (o IDM-VTON), califica el resultado con una rúbrica y lo revisa si hace falta.
+  La pestaña «Grafo» muestra en vivo qué nodo y qué arista se ejecuta. Ver [Variante agéntica](#variante-agéntica-agentichtml--servermjs-claude--gpt-image-2).
+- **Sin servidor (`index.html`)**: un archivo autocontenido (≈ 190 KB) que se abre con doble clic y llama directamente al
+  Space gratuito de IDM-VTON. Sin build, npm ni backend; la prenda de ejemplo (una polo bicolor) va incrustada en base64.
+
+Nació en el workshop Build Day (16-sep-2026) como variante open source de un probador con superposición 2D, y se separó
+en este repo el 5-oct-2026 con su historial.
+
+## Cómo correr la versión sin servidor
 
 1. Doble clic en `index.html` (o arrastrarlo a Chrome). Funciona desde `file://`.
 2. Chrome pide permiso de cámara la primera vez: **Permitir**.
@@ -24,7 +32,7 @@ de ejemplo sigue incrustada y vuelve con «Prenda de ejemplo» o si el enlace fa
 Cómo se trae la imagen desde un `file://`, en este orden (probado):
 
 1. Descarga directa desde el navegador, si el servidor de la tienda envía cabeceras CORS (pocos lo hacen).
-2. A través del proxy público `images.weserv.nl` (el mismo que usa la app principal), que añade CORS y aplana transparencias en blanco.
+2. A través del proxy público `images.weserv.nl`, que añade CORS y aplana transparencias en blanco.
 3. Si nada de eso funciona pero la imagen se puede mostrar, se le pasa la URL al Space y él la descarga (verificado con Gradio 4.24).
 
 En 1 y 2 la imagen se normaliza en el navegador a 768×1024 con fondo blanco, que es lo que esperan los modelos; en 3 no, e IDM-VTON
@@ -108,7 +116,7 @@ en el Space gratuito si se pone `GENERATOR=idm`. Claude decide si vale la pena g
 resultado y propone la revisión.
 
 ```bash
-cd open-source-tryon
+cp .env.example .env        # y pega las claves
 npm install                 # una vez: @anthropic-ai/sdk, zod, @gradio/client 2.6.0 (solo para el servidor)
 nano .env                   # ANTHROPIC_API_KEY=sk-ant-…  OPENAI_API_KEY=sk-…
 npm start                   # http://localhost:3000  (la cámara funciona porque localhost es contexto seguro)
@@ -117,8 +125,8 @@ npm start                   # http://localhost:3000  (la cámara funciona porque
 Variables opcionales en `.env`: `GENERATOR` (`openai` por defecto si hay clave de OpenAI, si no `idm`),
 `OPENAI_IMAGE_MODEL` (`gpt-image-2`), `CLAUDE_MODEL`, `MAX_REVISIONS` (1), `HF_TOKEN` e `IDM_SPACE` (solo IDM-VTON).
 Una variable ya exportada en la shell gana sobre el `.env`. `.env` está en `.gitignore` y solo lo lee el servidor
-(`agent/env.mjs`, importado antes que todo lo demás): las claves nunca llegan al navegador. A diferencia del resto del
-repo, esta carpeta sí usa dependencias npm, pero únicamente en el servidor; la página sigue sin build ni CDN.
+(`agent/env.mjs`, importado antes que todo lo demás): las claves nunca llegan al navegador. Las dependencias npm son solo
+del servidor; las páginas siguen sin build ni CDN.
 
 ### Patrones (según «Building effective agents» de Anthropic y la guía de workflows de LangGraph)
 
@@ -191,7 +199,6 @@ generador simulado).
 ## Ensayo rápido antes del evento (5 min)
 
 ```bash
-cd open-source-tryon
 cp ~/una-foto-de-medio-cuerpo.jpg foto.mjpeg
 node src/e2e.mjs index.html foto.mjpeg        # una generación real: mira "resultado recibido en N s" en el registro
 open index.html                               # y una vez con la cámara de verdad, desde el hotspot

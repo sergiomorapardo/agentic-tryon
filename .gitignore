@@ -1,0 +1,5 @@
+node_modules/
+.env
+e2e-out/
+test-assets/
+.DS_Store

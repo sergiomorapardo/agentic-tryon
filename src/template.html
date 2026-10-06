@@ -286,7 +286,7 @@
   <details id="settingsBox">
     <summary>Ajustes y registro (token HF, respaldo, pasos, diagnóstico)</summary>
     <div class="settings agent-only"><div class="note">
-      Modo agéntico: las claves viven en <code>open-source-tryon/.env</code> (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>) y solo las lee
+      Modo agéntico: las claves viven en <code>.env</code> (raíz del repo) (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>) y solo las lee
       <code>server.mjs</code>; nunca llegan al navegador. Ahí también se elige el generador (<code>GENERATOR=openai</code> o <code>idm</code>),
       <code>OPENAI_IMAGE_MODEL</code>, <code>CLAUDE_MODEL</code> y <code>MAX_REVISIONS</code>. Reinicia <code>npm start</code> tras cambiarlos.
     </div></div>
@@ -1006,7 +1006,7 @@ async function checkServer() {
     app.generator = h.generator; pill("gen", `Imagen: ${h.generator}`, "ok");
     els.subtitle.textContent = `flujo agéntico · Claude + ${h.generator}`;
     pill("rev", `Revisiones máx.: ${h.maxRevisions}`, "ok");
-    if (!h.ok) showError("El servidor no tiene ANTHROPIC_API_KEY.", "Pégala en open-source-tryon/.env y reinicia npm start.");
+    if (!h.ok) showError("El servidor no tiene ANTHROPIC_API_KEY.", "Pégala en .env (raíz del repo) y reinicia npm start.");
   } catch (e) { pill("claude", "server.mjs: sin respuesta", "err"); showError("No hay conexión con server.mjs.", "Arranca el servidor con npm start y recarga."); }
 }
 async function checkBackends() {
