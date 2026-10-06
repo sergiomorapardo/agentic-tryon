@@ -130,8 +130,12 @@ de ZeroGPU: dejar que el modelo decida cuántas veces generar podría agotarla e
    llegan a 4. Máximo `MAX_REVISIONS` revisiones (1 por defecto, por la cuota). Si ninguna aprueba, se entrega el mejor
    intento (mayor puntaje mínimo) **con los criterios incumplidos visibles**: llegar al límite no lo convierte en aprobado.
 
-Todo queda visible en la página: los pasos en grupos «Paralelo» y «Evaluador-optimizador» con su duración, el veredicto de
-Claude, los puntajes del intento entregado y el costo en Claude de la corrida.
+Todo queda visible en la página: el veredicto de Claude, los puntajes del intento entregado y el costo en Claude de la
+corrida. Abajo, el panel **Grafo del workflow** (estilo LangGraph Studio, tecla `G`) dibuja nodos y aristas desde
+`GRAPH` en `agent/workflow.mjs` (servido en `/api/graph`) y los ilumina con los eventos `node` y `edge` que emite el
+servidor: nodo activo, aristas recorridas, contador `×2` en los nodos del ciclo, una traza con tiempos y, al hacer clic en
+un nodo, su salida (el «estado»). Colores: violeta = Claude, verde azulado = IDM-VTON, gris = código. No usa LangGraph:
+el grafo es el mismo workflow de antes, declarado para poder verlo.
 
 ### Medido el 5-oct-2026
 

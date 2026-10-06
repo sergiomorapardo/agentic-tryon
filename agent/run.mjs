@@ -12,9 +12,9 @@ console.log(`model=${MODEL} max_revisions=${MAX_REVISIONS}`);
 const t0 = Date.now();
 const emit = (e) => {
   const t = ((Date.now() - t0) / 1000).toFixed(1).padStart(6);
-  if (e.type === "step") console.log(`${t}s  [${e.status}] ${e.label}${e.ms != null ? ` (${(e.ms / 1000).toFixed(1)} s)` : ""}${e.data ? " " + JSON.stringify(e.data) : ""}${e.error ? " ERROR " + e.error : ""}`);
+  if (e.type === "node") console.log(`${t}s  node ${e.node}${e.attempt ? "#" + e.attempt : ""} [${e.status}]${e.ms != null ? ` (${(e.ms / 1000).toFixed(1)} s)` : ""}${e.data ? " " + JSON.stringify(e.data) : ""}${e.error ? " ERROR " + e.error : ""}`);
+  else if (e.type === "edge") console.log(`${t}s  edge ${e.from} -> ${e.to}${e.label ? ` (${e.label})` : ""}`);
   else if (e.type === "status") console.log(`${t}s    · ${e.text}`);
-  else if (e.type === "revision") console.log(`${t}s  revision -> ${JSON.stringify(e.params)}`);
 };
 const out = await runTryOnWorkflow({ photo: load(personPath), garment: load(garmentPath), hint }, { emit });
 const { image, ...summary } = out;

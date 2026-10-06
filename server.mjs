@@ -2,7 +2,7 @@
 // Usage: npm start  (then open http://localhost:3000). Keys never reach the browser.
 import http from "node:http";
 import fs from "node:fs";
-import { runTryOnWorkflow, sniffMediaType, MODEL, MAX_REVISIONS } from "./agent/workflow.mjs";
+import { runTryOnWorkflow, sniffMediaType, GRAPH, MODEL, MAX_REVISIONS } from "./agent/workflow.mjs";
 
 try { process.loadEnvFile(new URL("./.env", import.meta.url)); } catch { /* no .env: rely on the environment */ }
 const PORT = Number(process.env.PORT || 3000);
@@ -61,6 +61,11 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && url.pathname === "/api/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: !!process.env.ANTHROPIC_API_KEY, model: MODEL, maxRevisions: MAX_REVISIONS }));
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/api/graph") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(GRAPH));
     return;
   }
   if (req.method === "POST" && url.pathname === "/api/tryon") {

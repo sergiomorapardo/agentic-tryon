@@ -99,64 +99,115 @@ const evaluate = (photo, garment, result, analysis, ctx) => ask({
     { type: "text", text: `Garment key features: ${analysis.key_features.join("; ")}. Grade the result.` }],
 }, ctx);
 
+// ---------- graph ----------
+// Declared once; the server exposes it at /api/graph and the page draws it. The workflow emits "node" and "edge"
+// events with these ids, so the trace shows what actually ran, not what the UI infers.
+export const GRAPH = {
+  nodes: [
+    { id: "__start__", kind: "terminal", label: "START" },
+    { id: "photo_check", kind: "llm", label: "photo_check", desc: "Claude revisa la foto" },
+    { id: "garment_analysis", kind: "llm", label: "garment_analysis", desc: "Claude analiza la prenda" },
+    { id: "gate", kind: "code", label: "gate", desc: "¿foto apta y prenda de torso?" },
+    { id: "generate", kind: "tool", label: "generate", desc: "IDM-VTON genera la imagen" },
+    { id: "evaluate", kind: "llm", label: "evaluate", desc: "Claude califica con la rúbrica" },
+    { id: "decide", kind: "code", label: "decide", desc: "¿aprueba? ¿quedan revisiones?" },
+    { id: "revise", kind: "code", label: "revise", desc: "aplica la revisión propuesta" },
+    { id: "rejected", kind: "terminal", label: "END · rechazado" },
+    { id: "__end__", kind: "terminal", label: "END · resultado" },
+  ],
+  edges: [
+    { from: "__start__", to: "photo_check" },
+    { from: "__start__", to: "garment_analysis" },
+    { from: "photo_check", to: "gate" },
+    { from: "garment_analysis", to: "gate" },
+    { from: "gate", to: "generate", label: "apta" },
+    { from: "gate", to: "rejected", label: "no apta" },
+    { from: "generate", to: "evaluate" },
+    { from: "generate", to: "__end__", label: "falla en revisión" },
+    { from: "evaluate", to: "decide" },
+    { from: "decide", to: "__end__", label: "aprobado / límite" },
+    { from: "decide", to: "revise", label: "falla, quedan revisiones" },
+    { from: "revise", to: "generate" },
+  ],
+};
+
 // ---------- workflow ----------
 // emit(event) receives progress events; returns the final summary (also emitted as {type: "result"}).
+// Events: {type:"node", node, status, attempt?, ms?, data?, error?}, {type:"edge", from, to, label?},
+// {type:"status", node, text}, {type:"result", ...}.
 // generate is injectable so the loop can be tested without spending GPU quota.
 export async function runTryOnWorkflow({ photo, garment, hint = "" }, { emit = () => {}, signal, generate = generateTryOn } = {}) {
   const usage = makeUsage();
   const ctx = { signal, usage };
   const t0 = Date.now();
-  const timed = async (id, label, fn) => {
+  const desc = Object.fromEntries(GRAPH.nodes.map((n) => [n.id, n.desc]));
+  const edge = (from, to, label) => emit({ type: "edge", from, to, ...(label && { label }) });
+  const node = async (id, fn, attempt) => {
     const ts = Date.now();
-    emit({ type: "step", id, label, status: "running" });
+    const base = { type: "node", node: id, label: desc[id] + (attempt ? ` (intento ${attempt})` : ""), ...(attempt && { attempt }) };
+    emit({ ...base, status: "running" });
     try {
       const data = await fn();
-      emit({ type: "step", id, label, status: "done", ms: Date.now() - ts, data });
+      emit({ ...base, status: "done", ms: Date.now() - ts, data });
       return data;
     } catch (e) {
-      emit({ type: "step", id, label, status: "failed", ms: Date.now() - ts, error: e.message });
+      emit({ ...base, status: "failed", ms: Date.now() - ts, error: e.message });
       throw e;
     }
   };
 
-  // 1. Parallelization: two independent checks, both awaited before deciding.
+  // 1. Parallelization: two independent checks, both awaited before the gate decides.
+  edge("__start__", "photo_check"); edge("__start__", "garment_analysis");
   const [photoCheck, analysis] = await Promise.all([
-    timed("photo_check", "Claude revisa la foto", () => checkPhoto(photo, ctx)),
-    timed("garment_analysis", "Claude analiza la prenda", () => analyzeGarment(garment, hint, ctx)),
+    node("photo_check", () => checkPhoto(photo, ctx)).finally(() => edge("photo_check", "gate")),
+    node("garment_analysis", () => analyzeGarment(garment, hint, ctx)).finally(() => edge("garment_analysis", "gate")),
   ]);
-  const gate = [];
-  if (!photoCheck.usable) gate.push(`Foto no apta: ${photoCheck.issues.join("; ") || "sin detalle"}. ${photoCheck.tip}`.trim());
-  if (analysis.category !== "upper_body") gate.push(`La prenda es "${analysis.category}"; IDM-VTON solo viste la parte superior del cuerpo.`);
-  if (gate.length) {
-    const out = { type: "result", status: "rejected", reasons: gate, photoCheck, analysis, attempts: [], usage: usage.summary(), ms: Date.now() - t0 };
+  const gate = await node("gate", async () => {
+    const reasons = [];
+    if (!photoCheck.usable) reasons.push(`Foto no apta: ${photoCheck.issues.join("; ") || "sin detalle"}. ${photoCheck.tip}`.trim());
+    if (analysis.category !== "upper_body") reasons.push(`La prenda es "${analysis.category}"; IDM-VTON solo viste la parte superior del cuerpo.`);
+    return { pass: !reasons.length, reasons };
+  });
+  if (!gate.pass) {
+    edge("gate", "rejected", "no apta");
+    const out = { type: "result", status: "rejected", reasons: gate.reasons, photoCheck, analysis, attempts: [], usage: usage.summary(), ms: Date.now() - t0 };
     emit(out);
     return out;
   }
+  edge("gate", "generate", "apta");
 
-  // 2. Evaluator-optimizer: generate -> evaluate -> revise, bounded by MAX_REVISIONS.
+  // 2. Evaluator-optimizer: generate -> evaluate -> decide -> (revise -> generate), bounded by MAX_REVISIONS.
   const attempts = [];
   let params = { description: analysis.description, crop: false, steps: 30, seed: 42 };
   let stopReason = "";
   for (let n = 1; n <= 1 + MAX_REVISIONS; n++) {
     let image;
     try {
-      image = await timed(`generate_${n}`, `IDM-VTON genera (intento ${n})`, async () => {
-        const r = await generate({ person: photo, garment, ...params }, { signal, onStatus: (s) => emit({ type: "status", id: `generate_${n}`, text: s }) });
-        return { ...r, mediaType: sniffMediaType(r.buffer, r.mediaType), toJSON: () => ({ ms: r.ms, kb: Math.round(r.buffer.length / 1024) }) };
-      });
+      image = await node("generate", async () => {
+        const r = await generate({ person: photo, garment, ...params }, { signal, onStatus: (text) => emit({ type: "status", node: "generate", text }) });
+        return { ...r, mediaType: sniffMediaType(r.buffer, r.mediaType), toJSON: () => ({ ms: r.ms, kb: Math.round(r.buffer.length / 1024), params }) };
+      }, n);
     } catch (e) {
       if (signal?.aborted || !attempts.length) throw e;
       stopReason = e instanceof QuotaError ? "cuota de ZeroGPU agotada antes de la revisión" : `la revisión falló: ${e.message}`;
+      edge("generate", "__end__", "falla en revisión");
       break;
     }
-    const grade = await timed(`evaluate_${n}`, `Claude evalúa el resultado (intento ${n})`, () => evaluate(photo, garment, image, analysis, ctx));
+    edge("generate", "evaluate");
+    const grade = await node("evaluate", () => evaluate(photo, garment, image, analysis, ctx), n);
+    edge("evaluate", "decide");
     const scores = { garment_fidelity: grade.garment_fidelity, identity_preserved: grade.identity_preserved, realism: grade.realism };
     const passed = Object.values(scores).every((s) => s >= PASS_SCORE);
     attempts.push({ n, params: { ...params }, scores, min: Math.min(...Object.values(scores)), passed, feedback: grade.feedback, failed_criteria: grade.failed_criteria, image });
-    if (passed) { stopReason = "aprobado por la rúbrica"; break; }
-    if (n > MAX_REVISIONS) { stopReason = `máximo de revisiones (${MAX_REVISIONS}) sin aprobar`; break; }
-    params = { description: grade.revision.description, crop: grade.revision.crop, steps: grade.revision.steps, seed: params.seed + 1 };
-    emit({ type: "revision", n, params });
+    const decision = await node("decide", async () => {
+      if (passed) return { next: "__end__", reason: "aprobado por la rúbrica" };
+      if (n > MAX_REVISIONS) return { next: "__end__", reason: `máximo de revisiones (${MAX_REVISIONS}) sin aprobar` };
+      return { next: "revise", reason: `criterio bajo ${PASS_SCORE}; revisión ${n} de ${MAX_REVISIONS}` };
+    }, n);
+    if (decision.next === "__end__") { stopReason = decision.reason; edge("decide", "__end__", "aprobado / límite"); break; }
+    edge("decide", "revise", "falla, quedan revisiones");
+    params = await node("revise", async () => ({ description: grade.revision.description, crop: grade.revision.crop, steps: grade.revision.steps, seed: params.seed + 1 }), n);
+    edge("revise", "generate");
   }
 
   // Best attempt: highest minimum score, then highest total. A non-passing best keeps its failed criteria.

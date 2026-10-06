@@ -160,16 +160,34 @@
   /* Agentic mode (agentic.html, served by server.mjs) */
   body:not(.agent) .agent-only, body.agent .client-only { display: none !important; }
   .agentsteps { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: 15px; color: var(--muted); }
-  .agentsteps .group { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .agentsteps .group > b { font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-size: 12px; }
-  .step { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--fg); }
-  .step::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
-  .step.running::before { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
-  .step.done::before { background: var(--ok); }
-  .step.failed::before { background: var(--err); }
-  .step.warn::before { background: var(--warn); }
-  .step small { color: var(--muted); font-variant-numeric: tabular-nums; }
   .verdict { flex-basis: 100%; color: var(--fg); font-size: 16px; }
+  /* Graph panel ("LangGraph Studio"-style): nodes, edges and trace of the workflow as it runs */
+  .graphpanel { border: 1px solid var(--line); border-radius: 14px; background: #07090c; margin-bottom: 10px; }
+  .graphpanel summary { display: flex; gap: 14px; align-items: baseline; font: 600 14px/1 ui-monospace, Menlo, monospace; color: var(--fg); }
+  .graphpanel summary span { color: var(--muted); font-weight: 400; }
+  .gp-body { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 0; border-top: 1px solid var(--line); height: 230px; }
+  .gp-body svg { width: 100%; height: 100%; display: block; }
+  .gp-side { display: grid; grid-template-rows: 1fr 1fr; border-left: 1px solid var(--line); min-height: 0; }
+  .gp-side pre { margin: 0; padding: 8px 12px; overflow: auto; font: 12px/1.45 ui-monospace, Menlo, monospace; color: #b8c4d0; white-space: pre-wrap; min-height: 0; }
+  .gp-side pre + pre { border-top: 1px solid var(--line); color: #9fd3e6; }
+  .gp-side .t-run { color: var(--accent); } .gp-side .t-ok { color: var(--ok); } .gp-side .t-err { color: var(--err); } .gp-side .t-edge { color: #c9a6ff; }
+  #graphSvg .gnode rect { fill: #111720; stroke: #3a4554; stroke-width: 1.5; }
+  #graphSvg .gnode text { fill: #cfd8e3; font: 600 12px ui-monospace, Menlo, monospace; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  #graphSvg .gnode text.kind { font-size: 9px; font-weight: 400; fill: #7d8b9b; }
+  #graphSvg .gnode { cursor: pointer; }
+  #graphSvg .gnode.llm rect { stroke: #8e6cff; } #graphSvg .gnode.tool rect { stroke: #2bb3a3; }
+  #graphSvg .gnode.terminal rect { fill: #0b0d10; stroke-dasharray: 4 3; }
+  #graphSvg .gnode.running rect { stroke: var(--accent); stroke-width: 3; animation: pulse 1s ease-in-out infinite; }
+  #graphSvg .gnode.done rect { stroke: var(--ok); stroke-width: 2.5; fill: #0f1d16; }
+  #graphSvg .gnode.failed rect { stroke: var(--err); stroke-width: 3; fill: #24101a; }
+  #graphSvg .gnode.selected rect { filter: drop-shadow(0 0 6px rgba(76, 201, 240, .8)); }
+  #graphSvg .gnode .badge { fill: var(--accent); font-size: 10px; text-anchor: end; }
+  #graphSvg .gedge path { fill: none; stroke: #3a4554; stroke-width: 1.5; }
+  #graphSvg .gedge text { fill: #6f7d8c; font: 10px ui-monospace, Menlo, monospace; text-anchor: middle; }
+  #graphSvg .gedge.hot path { stroke: var(--ok); stroke-width: 2.2; }
+  #graphSvg .gedge.hot text { fill: #b9f5d0; }
+  #graphSvg .gedge.active path { stroke: var(--accent); stroke-width: 3; stroke-dasharray: 6 4; animation: dash .6s linear infinite; }
+  @keyframes dash { to { stroke-dashoffset: -20; } }
   @media (max-width: 1100px) {
     .stage { grid-template-columns: 1fr 1fr; }
     .panel.garment { grid-column: 1 / -1; flex-direction: row; max-height: 160px; }
@@ -245,6 +263,13 @@
 </main>
 
 <footer>
+  <details class="graphpanel agent-only" id="graphBox" open>
+    <summary>Grafo del workflow <span>nodos · aristas · traza · clic en un nodo para ver su estado · tecla G</span></summary>
+    <div class="gp-body">
+      <svg id="graphSvg" viewBox="0 0 1000 215" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="gp-side"><pre id="graphTrace">esperando una ejecución…</pre><pre id="graphState">estado del nodo seleccionado</pre></div>
+    </div>
+  </details>
   <details id="settingsBox">
     <summary>Ajustes y registro (token HF, respaldo, pasos, diagnóstico)</summary>
     <div class="settings agent-only"><div class="note">
@@ -381,7 +406,7 @@ const els = {
   btnDownload: $("btnDownload"), btnCamera: $("btnCamera"), btnOpenSettings: $("btnOpenSettings"), settingsBox: $("settingsBox"), setFalKey: $("setFalKey"),
   garmentBar: $("garmentBar"), garmentUrl: $("garmentUrl"), garmentDesc: $("garmentDesc"), btnLoadGarment: $("btnLoadGarment"),
   btnSampleGarment: $("btnSampleGarment"), garmentImg: $("garmentImg"), garmentCaption: $("garmentCaption"),
-  agentSteps: $("agentSteps"), subtitle: $("subtitle"),
+  agentSteps: $("agentSteps"), subtitle: $("subtitle"), graphSvg: $("graphSvg"), graphTrace: $("graphTrace"), graphState: $("graphState"), graphBox: $("graphBox"),
 };
 
 const logLines = [];
@@ -780,19 +805,84 @@ async function generate() {
 // ================================================================
 // Agentic generation (agentic.html): server.mjs runs the Claude workflow and streams NDJSON events
 // ================================================================
-const STEP_GROUPS = { photo_check: "par", garment_analysis: "par" };
-function resetSteps() {
-  els.agentSteps.innerHTML = '<span class="group" id="grp-par"><b>Paralelo</b></span><span class="group" id="grp-eo"><b>Evaluador-optimizador</b></span>';
+// Graph panel: layout per node id (the structure comes from /api/graph, declared in agent/workflow.mjs)
+const GRAPH_LAYOUT = {
+  __start__: [40, 105], photo_check: [165, 45], garment_analysis: [165, 165], gate: [300, 105], rejected: [300, 195],
+  generate: [445, 105], evaluate: [590, 105], decide: [735, 105], revise: [662, 195], __end__: [918, 105],
+};
+const EDGE_BEND = { "generate->__end__": -95 }; // control-point offset (px, vertical) for edges that would overlap
+const graph = { def: null, visits: {}, data: {}, t0: 0, selected: null, lastEdge: null };
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const nodeSize = (n) => n.kind === "terminal" ? [n.label.length * 7.5 + 20, 26] : [126, 38];
+function edgeEnd(from, to, size) { // point where the segment center(from)->center(to) leaves the box around `to`
+  const [x0, y0] = from, [x1, y1] = to, [w, h] = size, dx = x0 - x1, dy = y0 - y1;
+  const k = Math.min(Math.abs(dx) > 0 ? (w / 2) / Math.abs(dx) : Infinity, Math.abs(dy) > 0 ? (h / 2) / Math.abs(dy) : Infinity);
+  return [x1 + dx * k, y1 + dy * k];
 }
-function renderStep(e) {
-  let chip = document.getElementById("step-" + e.id);
-  if (!chip) {
-    chip = document.createElement("span"); chip.id = "step-" + e.id;
-    document.getElementById(STEP_GROUPS[e.id] === "par" ? "grp-par" : "grp-eo").appendChild(chip);
+function drawGraph() {
+  const g = graph.def; if (!g) return;
+  const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n]));
+  let svg = '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6f7d8c"/></marker></defs>';
+  for (const e of g.edges) {
+    const a = GRAPH_LAYOUT[e.from], b = GRAPH_LAYOUT[e.to]; if (!a || !b) continue;
+    const id = `${e.from}->${e.to}`, bend = EDGE_BEND[id] || 0;
+    const ctrl = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + bend];
+    const p0 = edgeEnd(bend ? ctrl : b, a, nodeSize(byId[e.from])), p1 = edgeEnd(bend ? ctrl : a, b, nodeSize(byId[e.to]));
+    const d = bend ? `M${p0} Q${ctrl} ${p1}` : `M${p0} L${p1}`;
+    // Horizontal edges are short: their label goes above the row of nodes so the boxes do not hide it.
+    const lx = bend ? ctrl[0] : (p0[0] + p1[0]) / 2, ly = bend ? a[1] + bend / 2 - 5 : Math.abs(a[1] - b[1]) < 5 ? a[1] - 26 : (p0[1] + p1[1]) / 2 - 5;
+    svg += `<g class="gedge" id="ge-${esc(id)}"><path d="${d}" marker-end="url(#arrow)"/>${e.label ? `<text x="${lx}" y="${ly}">${esc(e.label)}</text>` : ""}</g>`;
   }
-  chip.className = "step " + e.status;
-  chip.textContent = e.label;
-  if (e.ms != null) { const s = document.createElement("small"); s.textContent = `${(e.ms / 1000).toFixed(1)} s`; chip.appendChild(s); }
+  for (const n of g.nodes) {
+    const [x, y] = GRAPH_LAYOUT[n.id] || [0, 0], [w, h] = nodeSize(n);
+    const kind = { llm: "Claude", tool: "IDM-VTON", code: "código" }[n.kind] || "";
+    svg += `<g class="gnode ${n.kind}" id="gn-${n.id}" data-node="${n.id}"><title>${esc(n.desc || n.label)}</title>` +
+      `<rect x="${x - w / 2}" y="${y - h / 2}" width="${w}" height="${h}" rx="${n.kind === "terminal" ? h / 2 : 8}"/>` +
+      (kind ? `<text x="${x}" y="${y - 7}">${esc(n.label)}</text><text class="kind" x="${x}" y="${y + 9}">${kind}</text>` : `<text x="${x}" y="${y}">${esc(n.label)}</text>`) +
+      `<text class="badge" x="${x + w / 2 - 6}" y="${y + h / 2 - 6}"></text></g>`;
+  }
+  els.graphSvg.innerHTML = svg;
+}
+async function loadGraph() {
+  try { graph.def = await withTimeout(fetch("/api/graph").then((r) => r.json()), 5000, "grafo"); drawGraph(); }
+  catch (e) { els.graphTrace.textContent = "no se pudo cargar el grafo: " + e.message; }
+}
+function trace(cls, text) {
+  const t = graph.t0 ? `+${((performance.now() - graph.t0) / 1000).toFixed(1).padStart(5)}s` : "";
+  els.graphTrace.insertAdjacentHTML("beforeend", `<span class="${cls}">${t}  ${esc(text)}</span>\n`);
+  els.graphTrace.scrollTop = els.graphTrace.scrollHeight;
+}
+function showNodeState(id, pinned = true) { // pinned = clicked by the user: stop following the execution
+  if (pinned) {
+    graph.selected = id;
+    document.querySelectorAll("#graphSvg .gnode").forEach((g) => g.classList.toggle("selected", g.dataset.node === id));
+  }
+  const d = graph.data[id];
+  els.graphState.textContent = d ? `${id}${d.attempt ? " · intento " + d.attempt : ""} · ${d.status}${d.ms != null ? ` · ${(d.ms / 1000).toFixed(1)} s` : ""}\n` + JSON.stringify(d.data ?? d.error ?? null, null, 2) : `${id}: aún no se ejecuta`;
+}
+function resetSteps() {
+  graph.visits = {}; graph.data = {}; graph.t0 = performance.now(); graph.lastEdge = null; graph.selected = null;
+  drawGraph(); els.graphTrace.textContent = ""; els.graphState.textContent = "estado del nodo seleccionado";
+  setVerdict("");
+}
+function graphNode(e) {
+  const el = document.getElementById("gn-" + e.node); if (!el) return;
+  el.classList.remove("running", "done", "failed"); el.classList.add(e.status);
+  if (e.status === "running") {
+    graph.visits[e.node] = (graph.visits[e.node] || 0) + 1;
+    if (graph.visits[e.node] > 1) el.querySelector(".badge").textContent = `×${graph.visits[e.node]}`;
+    trace("t-run", `▶ ${e.node}${e.attempt ? "#" + e.attempt : ""}  ${e.label}`);
+  } else {
+    graph.data[e.node] = e;
+    trace(e.status === "done" ? "t-ok" : "t-err", `${e.status === "done" ? "✓" : "✗"} ${e.node}${e.attempt ? "#" + e.attempt : ""}  ${(e.ms / 1000).toFixed(1)} s${e.error ? "  " + e.error : ""}`);
+    if (!graph.selected || graph.selected === e.node) showNodeState(e.node, false);
+  }
+}
+function graphEdge(e) {
+  const el = document.getElementById(`ge-${e.from}->${e.to}`);
+  if (graph.lastEdge) graph.lastEdge.classList.remove("active");
+  if (el) { el.classList.add("hot", "active"); graph.lastEdge = el; }
+  trace("t-edge", `→ ${e.from} → ${e.to}${e.label ? `  [${e.label}]` : ""}`);
 }
 function setVerdict(text) {
   let v = document.getElementById("verdict");
@@ -800,17 +890,13 @@ function setVerdict(text) {
   v.textContent = text;
 }
 function onAgentEvent(e, ctl) {
-  if (e.type === "step") {
-    renderStep(e);
-    log(`${e.label}: ${e.status}${e.ms != null ? ` (${(e.ms / 1000).toFixed(1)} s)` : ""}${e.data ? " " + JSON.stringify(e.data) : ""}${e.error ? " · " + e.error : ""}`);
-    if (e.status === "running") ctl.phase(e.label + "…");
-    if (e.id.startsWith("evaluate_") && e.status === "done") {
-      const d = e.data; setVerdict(`Claude: ${d.feedback}`);
-      const chip = document.getElementById("step-" + e.id);
-      if ([d.garment_fidelity, d.identity_preserved, d.realism].some((x) => x < 4)) chip.className = "step warn";
-    }
-  } else if (e.type === "status") ctl.phase(`${document.getElementById("step-" + e.id)?.firstChild?.textContent || "Generando"} · ${e.text}`);
-  else if (e.type === "revision") log(`revisión ${e.n}: ${JSON.stringify(e.params)}`);
+  if (e.type === "node") {
+    graphNode(e);
+    log(`${e.node}${e.attempt ? "#" + e.attempt : ""}: ${e.status}${e.ms != null ? ` (${(e.ms / 1000).toFixed(1)} s)` : ""}${e.data ? " " + JSON.stringify(e.data) : ""}${e.error ? " · " + e.error : ""}`);
+    if (e.status === "running" && e.node !== "gate" && e.node !== "decide" && e.node !== "revise") ctl.phase(e.label + "…");
+    if (e.node === "evaluate" && e.status === "done") setVerdict(`Claude: ${e.data.feedback}`);
+  } else if (e.type === "edge") { graphEdge(e); log(`edge ${e.from} -> ${e.to}${e.label ? ` (${e.label})` : ""}`); }
+  else if (e.type === "status") { ctl.phase(`IDM-VTON · ${e.text}`); trace("", `  · ${e.node}: ${e.text}`); }
   else if (e.type === "error") throw Object.assign(new Error(e.message), { hint: e.hint });
   else if (e.type === "result") return e;
 }
@@ -949,6 +1035,7 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "r" || e.key === "R") { if (app.photoBlob) retake(); }
   else if (e.key === "d" || e.key === "D") { if (app.state === "done") download(); }
   else if (e.key === "Escape") { if (app.state === "generating") cancelGeneration(); }
+  else if ((e.key === "g" || e.key === "G") && AGENT_MODE) { els.graphBox.open = !els.graphBox.open; requestAnimationFrame(layoutGuide); }
 });
 window.addEventListener("error", (e) => showError("Error inesperado: " + (e.message || e.error?.message || "?"), "Mira el registro en Ajustes."));
 window.addEventListener("unhandledrejection", (e) => showError("Error inesperado: " + (e.reason?.message || e.reason || "?"), "Mira el registro en Ajustes."));
@@ -963,6 +1050,8 @@ if (AGENT_MODE) {
   els.settingsBox.querySelector("summary").textContent = "Ajustes y registro (claves en .env, diagnóstico)";
   els.garmentDesc.placeholder = "opcional: Claude la escribe";
   els.garmentDesc.closest("label").firstChild.textContent = "Pista para Claude (opcional)";
+  loadGraph();
+  els.graphSvg.addEventListener("click", (e) => { const n = e.target.closest(".gnode"); if (n) showNodeState(n.dataset.node); });
 }
 if (!AGENT_MODE && !window.__gradio?.Client) {
   setStatus("err", "No se cargó el cliente de Gradio"); showError("El cliente incrustado no se inicializó.", "El archivo HTML puede estar corrupto; regénéralo con src/build.mjs.");
