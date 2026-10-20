@@ -2,6 +2,7 @@
 // Usage: node src/e2e.mjs index.html|http://localhost:3000 photo.mjpeg [--skip-generate] [--deny-camera] [--order=leffa] [--garment-url=https://…]
 //   photo.mjpeg = any half-body JPEG renamed to .mjpeg (Chrome plays it as the fake camera).
 //   WIN=1280,720 forces the window size; OUT=/path changes where screenshots and the result go (default ./e2e-out).
+//   --upload uses the photo file as a local upload instead of a fake camera.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 
@@ -14,6 +15,7 @@ const OUT = process.env.OUT || "./e2e-out"; fs.mkdirSync(OUT, { recursive: true 
 const PROFILE = OUT + "/chrome-profile";
 const skipGenerate = process.argv.includes("--skip-generate");
 const denyCamera = process.argv.includes("--deny-camera");
+const uploadPhoto = process.argv.includes("--upload");
 const orderArg = (process.argv.find((a) => a.startsWith("--order=")) || "").slice(8);
 const fileUrl = /^https?:\/\//.test(htmlPath) ? htmlPath : "file://" + (htmlPath.startsWith("/") ? htmlPath : process.cwd() + "/" + htmlPath);
 fs.rmSync(PROFILE, { recursive: true, force: true });
@@ -73,8 +75,18 @@ await send("Runtime.enable"); await send("Page.enable"); await send("Log.enable"
 console.log("navegando a", fileUrl);
 await send("Page.navigate", { url: fileUrl });
 try {
+  await waitState(["idle"], 25000);
+  if (uploadPhoto) {
+    const { result: { root } } = await send("DOM.getDocument");
+    const { result: { nodeId } } = await send("DOM.querySelector", { nodeId: root.nodeId, selector: "#photoInput" });
+    await send("DOM.setFileInputFiles", { nodeId, files: [mjpeg.startsWith("/") ? mjpeg : process.cwd() + "/" + mjpeg] });
+    await waitState(["captured"], 15000);
+    console.log("1) foto subida sin cámara");
+  } else {
+    await evalJs("document.getElementById('btnCamera').click()");
+  }
   if (orderArg) { await new Promise((r) => setTimeout(r, 800)); await evalJs(`localStorage.setItem("vton.order", ${JSON.stringify(orderArg)})`); console.log("   orden forzado:", orderArg); }
-  const cam = await waitState(["camera-ready", "camera-error"], 25000);
+  const cam = uploadPhoto ? "uploaded" : await waitState(["camera-ready", "camera-error"], 25000);
   console.log("1) cámara:", cam);
   await new Promise((r) => setTimeout(r, 1200));
   if (cam === "camera-error") { await shot("01-camera-error"); await dumpUi(); throw new Error("fin: prueba de cámara denegada"); }
@@ -93,7 +105,7 @@ try {
     await shot("00-garment");
     if (info?.blob) fs.writeFileSync(`${OUT}/garment.jpg`, Buffer.from(await evalJs("window.__vton.garment.dataUrl.split(',')[1]"), "base64"));
   }
-  await evalJs("document.getElementById('btnCapture').click()");
+  if (!uploadPhoto) await evalJs("document.getElementById('btnCapture').click()");
   console.log("2) captura:", await waitState(["captured"], 15000));
   await shot(`02-captured-${(process.env.WIN || "1600x1000").replace(",", "x")}`);
   console.log("   foto:", await evalJs("Math.round(window.__vton.photoBlob.size/1024)+' KB'"));
@@ -121,6 +133,7 @@ try {
   await dumpUi();
   console.log("--- registro ---\n" + (await text("log")));
 } catch (e) {
+  process.exitCode = 1;
   console.log("FIN:", e.message);
   await shot("99-fin").catch(() => {});
   console.log("--- registro ---\n" + (await text("log").catch(() => "(sin registro)")));

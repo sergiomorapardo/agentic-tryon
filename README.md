@@ -1,12 +1,20 @@
 # Agentic try-on · probador virtual con Claude
 
-Probador virtual con cámara: captura una foto, viste a la persona con una prenda y muestra el antes y el después.
+Probador virtual: sube una foto o activa la cámara, viste a la persona con una prenda y compara el antes y el después.
+Interfaz clara inspirada en Liquid Glass, con paneles translúcidos, acciones agrupadas y diseño adaptable a móvil.
+
+![Visualizador del probador: persona ficticia con camiseta, polo bicolor de ejemplo y la misma persona con la polo aplicada](docs/images/visualizer-preview.png)
+
+*Vista de la interfaz agéntica con un ejemplo ilustrativo: persona ficticia y cambio de prenda generados con IA.
+Se usó la [polo del proyecto](src/garment.jpg) como referencia, sin tomar fotografías ni acceder a la cámara.
+Las imágenes se cargaron para esta captura; no representa una ejecución ni una evaluación del workflow.*
+
 Dos formas de usarlo:
 
 - **Agéntica (`npm start`)**: un workflow con Claude (SDK de Anthropic) revisa la foto y la prenda en paralelo, manda a
   generar la imagen a OpenAI `gpt-image-2` (o IDM-VTON), califica el resultado con una rúbrica y lo revisa si hace falta.
   La pestaña «Grafo» muestra en vivo qué nodo y qué arista se ejecuta. Ver [Variante agéntica](#variante-agéntica-agentichtml--servermjs-claude--gpt-image-2).
-- **Sin servidor (`index.html`)**: un archivo autocontenido (≈ 190 KB) que se abre con doble clic y llama directamente al
+- **Sin servidor (`index.html`)**: un archivo autocontenido (≈ 206 KB) que se abre con doble clic y llama directamente al
   Space gratuito de IDM-VTON. Sin build, npm ni backend; la prenda de ejemplo (una polo bicolor) va incrustada en base64.
 
 Nació en el workshop Build Day (16-sep-2026) como variante open source de un probador con superposición 2D, y se separó
@@ -15,19 +23,21 @@ en este repo el 5-oct-2026 con su historial.
 ## Cómo correr la versión sin servidor
 
 1. Doble clic en `index.html` (o arrastrarlo a Chrome). Funciona desde `file://`.
-2. Chrome pide permiso de cámara la primera vez: **Permitir**.
-3. Colócate dentro del marco 3:4, pulsa **Capturar foto** (o `espacio`): cuenta atrás de 3 s.
+2. Pulsa **Subir foto** y elige un JPG, PNG o WebP de hasta 12 MB. Se adapta a 768×1024 sin recortar la cabeza ni las piernas.
+   La cámara solo se solicita si pulsas **Usar cámara**.
+3. Si eliges cámara, permite el acceso, colócate dentro del marco 3:4 y pulsa **Capturar foto** (o `espacio`).
 4. Revisa la foto y pulsa **Generar** (`⏎`). El estado y el contador de segundos van en la barra grande.
-5. **Descargar resultado** (`D`) guarda el PNG. **Repetir foto** (`R`) vuelve a la cámara. `esc` cancela.
+5. **Descargar resultado** (`D`) guarda el PNG. **Repetir foto** (`R`) vuelve a la cámara si está activa o permite elegir
+   otra imagen. `esc` cancela la generación.
 
 Ajustes (desplegable inferior): token HF, X-IP-Token, clave fal.ai, orden de modelos, pasos, tiempo máximo,
 IDM-VTON alternativo (tu copia del Space en GPU de pago o un Gradio local). Se guardan en `localStorage`, nunca en el archivo.
 
 ## Prenda por enlace: `custom-garment.html`
 
-Misma página, más una barra arriba para pegar el **enlace directo** a la imagen de una prenda (clic derecho sobre la foto del
+Misma página, más campos en el panel central para pegar el **enlace directo** a la imagen de una prenda (clic derecho sobre la foto del
 producto → «Copiar dirección de la imagen»). También vale pegar el enlace con Cmd+V en cualquier punto de la página. La prenda
-de ejemplo sigue incrustada y vuelve con «Prenda de ejemplo» o si el enlace falla.
+de ejemplo sigue incrustada y vuelve con «Usar ejemplo» o si el enlace falla.
 
 Cómo se trae la imagen desde un `file://`, en este orden (probado):
 
@@ -168,6 +178,8 @@ generador simulado).
 
 ### Pruebas
 
+- `node src/e2e.mjs index.html docs/images/person-before.png --upload --skip-generate` comprueba la subida de una foto
+  ficticia y el estado listo para generar, sin activar la cámara ni ejecutar un modelo. Requiere Chrome y Node ≥ 22.
 - `node agent/run.mjs persona.jpg prenda.jpg` corre el workflow sin navegador (genera de verdad con el generador activo).
 - `IDM_MOCK=a.png,b.png npm start` sustituye el generador por esas imágenes, en orden, para probar la interfaz y el ciclo de
   revisión sin gastar cuota (por ejemplo, la foto original primero para forzar el rechazo, luego un resultado real).
@@ -179,6 +191,11 @@ generador simulado).
   1/5 a aprobada, revisión que termina sin aprobar, cuota agotada (mensaje con la hora de renovación) y regresión de
   `index.html` y `custom-garment.html` en `file://`. Foto de prueba: ejemplo `00034_00.jpg` del Space de IDM-VTON.
 
+Revisión de interfaz (19-oct-2026): subida local, archivos inválidos, normalización, descarga, cancelación/reintento,
+resultados aprobados y no aprobados, rechazo, errores, navegación del grafo por teclado y movimiento reducido.
+Probada en Chrome con anchos de 320, 390, 768, 1024, 1366 y 1600 px, sin desbordamiento horizontal de la página.
+Las respuestas del workflow fueron simuladas; esta revisión no vuelve a validar los modelos ni sus costos.
+
 ## Estructura
 
 - `index.html` — entregable final, autocontenido, prenda incrustada.
@@ -186,6 +203,7 @@ generador simulado).
 - `src/template.html` — plantilla legible (CSS + app JS) con tres placeholders.
 - `src/gradio-client-2.6.0.min.js` — bundle oficial de `@gradio/client` descargado de jsDelivr.
 - `src/garment.jpg` — prenda de la demo.
+- `docs/images/` — persona ficticia, cambio de prenda, vista del visualizador y prompts de generación del ejemplo del README.
 - `src/build.mjs` — ensambla los tres HTML (`node src/build.mjs`, Node ≥ 18). Solo hace falta para regenerarlos.
 - `agentic.html` — variante agéntica; la sirve `server.mjs`, sin el cliente de Gradio incrustado.
 - `server.mjs` — servidor local: página, `/api/health` y `/api/tryon` (eventos NDJSON en streaming).
