@@ -36,8 +36,9 @@ def merge_pr(number):
     merged = json.loads(
         run("gh", "pr", "view", str(number), "--json", "state,mergeCommit", cwd=root).stdout
     )
-    if merged["state"] != "MERGED":
-        raise RuntimeError("Merge has not completed; cleanup was not run")
+    if merged["state"] != "MERGED" or not merged.get("mergeCommit"):
+        # GitHub can report the merge commit a moment late; rerunning finalizes a merged PR.
+        raise RuntimeError("Merge has not completed; cleanup was not run. Rerun this command")
     git(root, "fetch", "origin", default)
     git(root, "merge", "--ff-only", f"origin/{default}")
     commit = merged["mergeCommit"]["oid"]
