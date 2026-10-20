@@ -8,11 +8,17 @@ import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Ignored directories skipped by backups; this repo keeps no hand-made output in dist/ or build/.
 REBUILDABLE = {"node_modules", ".venv", "__pycache__", "dist", "build"}
 
 
 def run(*args, cwd, check=True):
-    return subprocess.run(args, cwd=cwd, check=check, text=True, capture_output=True)
+    result = subprocess.run(args, cwd=cwd, check=False, text=True, capture_output=True)
+    if check and result.returncode:
+        # Surface the tool's own message instead of a bare exit status.
+        output = (result.stderr or result.stdout).strip()
+        raise RuntimeError(f"{' '.join(map(str, args[:3]))} failed: {output}")
+    return result
 
 
 def git(root, *args):
@@ -47,14 +53,13 @@ def eligible(root, branch, head, prs, default, *, equivalent_tree=True):
     matching = [pr for pr in prs if pr["headRefName"] == branch and not pr["isCrossRepository"]]
     if any(pr["state"] == "OPEN" for pr in matching):
         return False
-    if ancestor(root, head, f"origin/{default}"):
-        return True
+    # Ancestry of main alone is not evidence: a new branch without commits or a PR also passes it.
     for pr in matching:
         if pr["state"] != "MERGED" or not pr.get("mergeCommit"):
             continue
         if not ancestor(root, pr["mergeCommit"]["oid"], f"origin/{default}"):
             continue
-        if head == pr["headRefOid"]:
+        if ancestor(root, head, pr["headRefOid"]):
             return True
         if not equivalent_tree or ancestor(root, pr["headRefOid"], head):
             continue
@@ -100,7 +105,10 @@ def archive_data(path, destination):
 
 def busy_paths():
     """Keep worktrees with a working directory or open file in a visible process."""
-    result = run("lsof", "-Fn", cwd=Path.cwd(), check=False)
+    try:
+        result = run("lsof", "-Fn", cwd=Path.cwd(), check=False)
+    except FileNotFoundError:
+        raise RuntimeError("lsof is required to detect busy worktrees") from None
     if result.returncode not in {0, 1}:
         raise RuntimeError("Cannot inspect process working directories")
     return [Path(line[1:]) for line in result.stdout.splitlines() if line.startswith("n/")]
