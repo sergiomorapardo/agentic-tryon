@@ -1,0 +1,33 @@
+README visualizer illustration
+Created: 2026-10-19 (America/Bogota)
+Method: built-in image_gen tool; no CLI or API fallback.
+
+Assets:
+- person-before.png: generated fictional person.
+- person-after.png: edited version using person-before.png and ../../src/garment.jpg.
+- visualizer-preview.png: desktop browser rendering of agentic.html (1600×1080).
+- visualizer-mobile.png: mobile browser rendering (390×876), scrolled to the
+  result and controls. Both screenshots use the same local images.
+  Camera startup, backend checks and graph loading were disabled only in the
+  temporary documentation renderer. The application source was not changed.
+  Captions identify the illustration; no workflow scores, costs or timings were
+  fabricated. This image is not evidence of a live generation or evaluation.
+
+PROMPT 1 — person-before.png
+
+Use case: photorealistic-natural
+Asset type: synthetic input portrait for a virtual clothing try-on README demonstration.
+Primary request: Generate a photorealistic portrait of one entirely fictional adult man, about 30 years old, with short dark wavy hair, medium tan skin and a relaxed subtle smile, looking straight ahead. He wears a plain warm off-white crewneck T-shirt and charcoal trousers. No accessories.
+Scene/backdrop: plain softly lit light gray studio background.
+Composition/framing: portrait 3:4, straight-on front view, entire head with generous space above it, both shoulders, complete torso, arms relaxed slightly away from the torso, and visible down to mid thighs. Person centered. Shirt untucked. No crossed arms.
+Lighting/mood: soft even natural studio light, realistic skin and cotton fabric textures.
+Constraints: single person, single image, no collage, no labels, no logos, no text or watermark. This is the BEFORE image; only the plain cream T-shirt, no polo shirt.
+
+PROMPT 2 — person-after.png
+
+Use case: identity-preserve
+Asset type: AFTER image for a virtual try-on demonstration in a project README.
+Input images: Image 1 is the edit target, a generated fictional adult man in a plain cream T-shirt. Image 2 is the exact garment to put on him, a light blue and dark navy color-block short-sleeve polo.
+Primary request: Replace ONLY the man's cream T-shirt with the polo from Image 2, realistically fitted on his body. Faithfully reproduce the pale blue collar, pale blue upper chest, short button placket with pale blue buttons, straight horizontal transition across the chest to a dark navy lower torso, and dark navy bands across the lower part of both short sleeves. Leave the polo untucked. Reproduce fabric drape naturally.
+Invariants: Preserve exactly the original fictional man's face, identity, hair, expression, skin tone, pose, arms, hands, charcoal trousers, studio background, lighting, camera angle and framing. Entire head and torso remain visible. Same image dimensions and composition as Image 1.
+Constraints: output only the single edited portrait. No side-by-side, no collage, no product cutout, no labels, no UI, no text, no watermark.
