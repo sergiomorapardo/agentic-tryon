@@ -5,7 +5,9 @@ Method: built-in image_gen tool; no CLI or API fallback.
 Assets:
 - person-before.png: generated fictional person.
 - person-after.png: edited version using person-before.png and ../../src/garment.jpg.
-- visualizer-preview.png: browser rendering of agentic.html with these local images.
+- visualizer-preview.png: desktop browser rendering of agentic.html (1600×1080).
+- visualizer-mobile.png: mobile browser rendering (390×876), scrolled to the
+  result and controls. Both screenshots use the same local images.
   Camera startup, backend checks and graph loading were disabled only in the
   temporary documentation renderer. The application source was not changed.
   Captions identify the illustration; no workflow scores, costs or timings were
