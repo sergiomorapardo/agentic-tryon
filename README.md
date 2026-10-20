@@ -9,17 +9,24 @@ La pestaña **Grafo** permite seguir cada paso en vivo.
 
 ## El probador
 
-### Escritorio
+En escritorio, compara la foto original, la prenda y el resultado en una misma vista. En móvil, recorre los paneles
+apilados y accede a las mismas acciones.
 
-Foto original, prenda seleccionada y resultado juntos, con las acciones y el estado del proceso a la vista.
-
-![Probador en escritorio: foto original, selección de prenda, resultado y acciones](docs/images/visualizer-preview.png)
-
-### Móvil
-
-Los paneles se apilan para recorrer la foto, la prenda y el resultado. La descarga y las acciones siguen disponibles.
-
-<img src="docs/images/visualizer-mobile.png" width="300" alt="Vista móvil del probador: resultado, estado y controles para subir otra foto, generar y descargar">
+<table>
+  <thead>
+    <tr><th>Escritorio</th><th>Móvil</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td width="77%" valign="top">
+        <img src="docs/images/visualizer-preview.png" width="100%" alt="Probador en escritorio: foto original, selección de prenda, resultado y acciones">
+      </td>
+      <td width="23%" valign="top">
+        <img src="docs/images/visualizer-mobile.png" width="100%" alt="Vista móvil del probador: resultado, estado y controles para subir otra foto, generar y descargar">
+      </td>
+    </tr>
+  </tbody>
+</table>
 
 *Vistas del producto con un ejemplo ilustrativo.*
 
