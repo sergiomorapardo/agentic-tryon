@@ -20,7 +20,7 @@ jobs:
       - name: Check JavaScript syntax
         run: git ls-files '*.mjs' | xargs -n1 node --check
       - name: Check Python tooling
-        run: python3 -m py_compile scripts/*.py
+        run: git ls-files '*.py' | xargs -r python3 -m py_compile
       # The HTML deliverables are generated from src/; a stale commit fails here.
       - name: Check generated HTML is up to date
         run: |
