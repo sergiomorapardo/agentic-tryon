@@ -34,12 +34,18 @@ Los paneles se apilan para recorrer la foto, la prenda y el resultado. La descar
    Puedes cancelar una generación en curso.
 
 ```mermaid
-flowchart LR
-    A[Subir foto o usar cámara] --> B[Elegir una prenda]
-    B --> C[Generar el look]
-    C --> D[Comparar antes y después]
-    D --> E[Descargar resultado]
-    D --> B
+sequenceDiagram
+    actor Persona
+    participant Probador as Probador web
+    participant Proceso as Workflow agéntico
+    Persona->>Probador: Añadir foto y seleccionar prenda
+    Persona->>Probador: Generar look
+    Probador->>Proceso: Enviar foto y prenda
+    Proceso-->>Probador: Publicar avances de cada etapa
+    Proceso-->>Probador: Entregar resultado y evaluación
+    Probador-->>Persona: Mostrar antes, prenda y después
+    Persona->>Probador: Descargar resultado
+    Probador-->>Persona: Guardar imagen en el dispositivo
 ```
 
 Para obtener mejores resultados, usa una foto de frente, con buena luz, cabeza y torso visibles y brazos sin cruzar.
@@ -82,55 +88,140 @@ Abre [localhost:3000](http://localhost:3000). Las claves se leen en el servidor 
 Para usar IDM-VTON como generador, configura `GENERATOR=idm`; Claude sigue realizando la revisión y la evaluación.
 Consulta la [configuración completa](docs/DEVELOPMENT.md#configuración).
 
-## Cómo decide el workflow
+## Proceso de generación
 
-Claude analiza la foto y la prenda en paralelo. El flujo comprueba que la persona sea visible y que la prenda
-sea compatible con el generador antes de solicitar una imagen. OpenAI o IDM-VTON generan el look; Claude lo evalúa.
+El modo agéntico coordina tres responsabilidades: **analizar las entradas**, **generar el look** y
+**evaluar el resultado**. Los dos análisis iniciales se ejecutan en paralelo. El servidor valida la compatibilidad
+antes de pedir una imagen y controla cuántas revisiones se permiten.
 
 ```mermaid
-flowchart TD
-    I[Foto y prenda] --> P[Claude revisa la foto]
-    I --> G[Claude analiza la prenda]
-    P --> V{Entradas compatibles?}
-    G --> V
-    V -->|No| X[Explicar qué cambiar]
-    V -->|Sí| N[Generar imagen]
-    N --> E[Claude evalúa el resultado]
-    E --> A{Cumple los tres criterios?}
-    A -->|Sí| R[Mostrar resultado aprobado]
-    A -->|No| L{Quedan revisiones?}
-    L -->|Sí| C[Ajustar instrucciones]
-    C --> N
-    L -->|No| M[Mostrar el mejor intento y sus límites]
+sequenceDiagram
+    participant UI as Probador web
+    participant W as Servidor y workflow
+    participant C as Claude
+    participant G as Generador de imagen
+
+    UI->>W: Foto, prenda y descripción opcional
+    par LLM A · Revisar foto
+        rect rgb(232, 240, 254)
+            W->>C: Analizar persona, encuadre y visibilidad
+            C-->>W: Aptitud de la foto
+        end
+    and LLM B · Analizar prenda
+        rect rgb(243, 232, 255)
+            W->>C: Identificar categoría y rasgos de la prenda
+            C-->>W: Descripción y características
+        end
+    end
+    W->>W: Validar compatibilidad de las entradas
+    alt Entradas no compatibles
+        W-->>UI: Explicar qué cambiar, sin generar imagen
+    else Entradas compatibles
+        loop Intentos hasta aprobar o alcanzar el límite
+            rect rgb(224, 245, 238)
+                W->>G: Persona, prenda e instrucciones
+                G-->>W: Imagen generada
+            end
+            rect rgb(255, 243, 214)
+                W->>C: LLM C · Evaluar imagen frente a los originales
+                C-->>W: Puntajes, feedback y corrección propuesta
+            end
+            W->>W: Aplicar rúbrica y decidir si continuar
+            opt Hace falta otra revisión y queda presupuesto de intentos
+                W->>W: Ajustar parámetros con la corrección propuesta
+            end
+        end
+        W-->>UI: Mejor intento, evaluación y estado de aprobación
+    end
+    Note over UI,W: El progreso se transmite durante la ejecución
 ```
 
 La evaluación puntúa de 1 a 5 la **fidelidad de la prenda**, la **identidad de la persona** y el **realismo**.
 Los tres criterios deben alcanzar 4 para aprobar. Por defecto se permite una revisión; si ningún intento aprueba,
 el producto entrega el mejor disponible e indica los criterios incumplidos.
 
-En **Grafo** puedes inspeccionar el nodo activo, las conexiones recorridas, los intentos y las salidas de cada paso.
-El workflow está definido en código y tiene un límite de revisiones configurable.
+El generador es **OpenAI o IDM-VTON**, según la configuración: se usa uno por ejecución.
+En los modos directos, el navegador llama al proveedor de imagen sin este proceso de análisis y evaluación.
 
-## Arquitectura
+## Estructura del grafo
+
+Esta es la estructura declarada en [`GRAPH`](agent/workflow.mjs), la misma que muestra la pestaña **Grafo**.
+Cada nodo representa una operación. Los colores distinguen las tres llamadas a Claude, la generación de imagen
+y las operaciones que ejecuta el código.
 
 ```mermaid
-flowchart LR
-    U[Probador en el navegador] -->|Foto y prenda| S[Servidor local Node.js]
-    S --> W[Workflow de revisión y generación]
-    W <-->|Análisis y evaluación| C[API de Claude]
-    W <-->|Edición de imagen| O[API de OpenAI]
-    W <-->|Generador alternativo| H[IDM-VTON en Hugging Face]
-    W -->|Eventos y resultado| S
-    S -->|Progreso en vivo| U
-    U --> D[Descarga de la imagen]
-    classDef local fill:#e8f0fe,stroke:#4263a0,color:#183153
-    classDef external fill:#f2eafa,stroke:#8b68bf,color:#4d2c70
-    class U,S,W,D local
-    class C,O,H external
+graph TD
+    __start__((Inicio))
+
+    subgraph analysis[1 · Análisis en paralelo]
+        photo_check["LLM A · photo_check<br/>Revisar la foto"]
+        garment_analysis["LLM B · garment_analysis<br/>Analizar la prenda"]
+    end
+
+    gate["gate<br/>Validar compatibilidad"]
+    rejected([Entradas rechazadas])
+
+    subgraph iteration[2 · Generación y evaluación por intento]
+        generate["generate<br/>OpenAI o IDM-VTON"]
+        evaluate["LLM C · evaluate<br/>Evaluar y proponer corrección"]
+        decide["decide<br/>Aplicar rúbrica y límite"]
+        revise["revise<br/>Ajustar parámetros"]
+    end
+
+    __end__([Entregar mejor resultado])
+    __start__ --> photo_check
+    __start__ --> garment_analysis
+    photo_check --> gate
+    garment_analysis --> gate
+    gate -->|Compatible| generate
+    gate -->|No compatible| rejected
+    generate --> evaluate
+    generate -->|Falla al regenerar| __end__
+    evaluate --> decide
+    decide -->|Aprobado o límite alcanzado| __end__
+    decide -->|Requiere revisión y quedan intentos| revise
+    revise --> generate
+
+    classDef photo fill:#e8f0fe,stroke:#2563eb,color:#173b78,stroke-width:2px
+    classDef garment fill:#f3e8ff,stroke:#9333ea,color:#581c87,stroke-width:2px
+    classDef evaluation fill:#fff3d6,stroke:#b77907,color:#704509,stroke-width:2px
+    classDef image fill:#e0f5ee,stroke:#168268,color:#125443,stroke-width:2px
+    classDef code fill:#f1f5f9,stroke:#64748b,color:#334155
+    classDef terminal fill:#fff,stroke:#94a3b8,color:#334155
+    class photo_check photo
+    class garment_analysis garment
+    class evaluate evaluation
+    class generate image
+    class gate,decide,revise code
+    class __start__,rejected,__end__ terminal
+    style analysis fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style iteration fill:#f8fafc,stroke:#cbd5e1,color:#334155
 ```
 
-Azul: interfaz y ejecución local. Violeta: servicios externos. El modo agéntico usa un generador por ejecución.
-En los modos directos, el navegador se comunica con el proveedor de imagen sin pasar por el servidor local.
+| Color y operación | Entrada → salida | Cuándo se ejecuta |
+| --- | --- | --- |
+| **Azul · LLM A** `photo_check` | Foto → aptitud, encuadre y partes visibles | Una vez, en paralelo con LLM B |
+| **Violeta · LLM B** `garment_analysis` | Prenda → categoría, descripción y rasgos | Una vez, en paralelo con LLM A |
+| **Ámbar · LLM C** `evaluate` | Foto, prenda e imagen generada → puntajes y corrección propuesta | Una vez por imagen generada |
+| **Verde · Generador** `generate` | Persona, prenda y parámetros → nueva imagen | Una vez por intento |
+| **Gris · Código** `gate`, `decide`, `revise` | Validaciones, rúbrica y parámetros → siguiente operación | Sin llamadas adicionales a Claude |
+
+A, B y C son funciones del **mismo modelo de Claude**, no tres modelos distintos. El color identifica la función:
+si hay una revisión, se repiten el generador verde y la evaluación ámbar. La corrección la propone `evaluate`;
+`revise` solo la aplica en código.
+
+| Resultado del proceso | Llamadas lógicas a Claude | Imágenes generadas |
+| --- | --- | --- |
+| Entradas rechazadas por la validación | 2: A + B | 0 |
+| Resultado aprobado en el primer intento | 3: A + B + C | 1 |
+| Se completa una revisión adicional | 4: A + B + C + C | 2 |
+
+Si falla la generación de una revisión, se conserva el mejor intento anterior. Un fallo al generar la primera
+imagen se presenta como error, porque todavía no existe un resultado que entregar.
+
+En la pestaña **Grafo** puedes inspeccionar nodos, conexiones recorridas, repeticiones y salidas de cada paso.
+La leyenda de esta documentación distingue las llamadas por función; en el visor interactivo, los colores base
+agrupan por tipo de operación y el estado de ejecución se resalta en vivo.
 
 ## Alcance actual
 
